@@ -1,4 +1,4 @@
-package com.vibeflow.player
+package com.sonix.player
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -16,15 +16,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.vibeflow.player.data.MusicRepository
-import com.vibeflow.player.player.AudioPlayerManager
-import com.vibeflow.player.ui.components.PlayerBar
-import com.vibeflow.player.ui.screens.DownloadsScreen
-import com.vibeflow.player.ui.screens.ExploreScreen
-import com.vibeflow.player.ui.theme.CyanSecondary
-import com.vibeflow.player.ui.theme.DarkSurface
-import com.vibeflow.player.ui.theme.VibeFlowTheme
-import com.vibeflow.player.ui.theme.VioletPrimary
+import com.sonix.player.data.MusicRepository
+import com.sonix.player.player.AudioPlayerManager
+import com.sonix.player.ui.components.PlayerBar
+import com.sonix.player.ui.screens.DownloadsScreen
+import com.sonix.player.ui.screens.ExploreScreen
+import com.sonix.player.ui.theme.CyanSecondary
+import com.sonix.player.ui.theme.DarkSurface
+import com.sonix.player.ui.theme.SonixTheme
+import com.sonix.player.ui.theme.VioletPrimary
 
 class MainActivity : ComponentActivity() {
 
@@ -38,7 +38,7 @@ class MainActivity : ComponentActivity() {
         playerManager = AudioPlayerManager(applicationContext)
 
         setContent {
-            VibeFlowTheme {
+            SonixTheme {
                 var currentTab by remember { mutableStateOf("explore") }
                 val tracks by repository.tracks.collectAsState()
                 val playbackState by playerManager.playbackState.collectAsState()

@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "VibeFlow"
+rootProject.name = "Sonix"
 include(":app")

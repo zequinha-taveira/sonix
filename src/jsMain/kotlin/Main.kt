@@ -23,7 +23,7 @@ enum class RepeatMode {
 }
 
 object OfflineManager {
-    const val CACHE_NAME = "vibeflow-tracks-v1"
+    const val CACHE_NAME = "sonix-tracks-v1"
 
     fun isDownloaded(url: String, callback: (Boolean) -> Unit) {
         val caches = window.asDynamic().caches
@@ -403,7 +403,7 @@ class MusicPlayerApp {
         sidebar.innerHTML = """
             <div class="brand">
                 <i class="fa-solid fa-compact-disc brand-icon"></i>
-                <span class="brand-name">VibeFlow</span>
+                <span class="brand-name">Sonix</span>
             </div>
             <div class="menu-section">
                 <span class="menu-title">Discover</span>

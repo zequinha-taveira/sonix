@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.vibeflow.player"
+    namespace = "com.sonix.player"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.vibeflow.player"
+        applicationId = "com.sonix.player"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

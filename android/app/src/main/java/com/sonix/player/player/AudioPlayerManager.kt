@@ -1,11 +1,11 @@
-package com.vibeflow.player.player
+package com.sonix.player.player
 
 import android.content.Context
 import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import com.vibeflow.player.data.Track
+import com.sonix.player.data.Track
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

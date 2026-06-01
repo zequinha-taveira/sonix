@@ -1,4 +1,4 @@
-package com.vibeflow.player.ui.theme
+package com.sonix.player.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -7,7 +7,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-// VibeFlow Custom HSL/Hex Harmonious Color Palette
+// Sonix Custom HSL/Hex Harmonious Color Palette
 val VioletPrimary = Color(0xFF8B5CF6) // Vibrant Violet
 val CyanSecondary = Color(0xFF06B6D4) // Radiant Cyan
 val PinkTertiary = Color(0xFFEC4899)  // Playful Pink
@@ -29,10 +29,10 @@ private val DarkColorScheme = darkColorScheme(
     onSurface = OnDarkSurface
 )
 
-// We want VibeFlow to remain consistently immersive and dark/frosted,
+// We want Sonix to remain consistently immersive and dark/frosted,
 // so we'll force the dark color scheme to keep that premium music player vibe.
 @Composable
-fun VibeFlowTheme(
+fun SonixTheme(
     content: @Composable () -> Unit
 ) {
     MaterialTheme(

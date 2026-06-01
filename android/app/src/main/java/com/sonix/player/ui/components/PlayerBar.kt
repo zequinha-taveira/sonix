@@ -1,4 +1,4 @@
-package com.vibeflow.player.ui.components
+package com.sonix.player.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,11 +19,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.vibeflow.player.player.PlaybackRepeatMode
-import com.vibeflow.player.player.PlaybackState
-import com.vibeflow.player.ui.theme.CyanSecondary
-import com.vibeflow.player.ui.theme.PinkTertiary
-import com.vibeflow.player.ui.theme.VioletPrimary
+import com.sonix.player.player.PlaybackRepeatMode
+import com.sonix.player.player.PlaybackState
+import com.sonix.player.ui.theme.CyanSecondary
+import com.sonix.player.ui.theme.PinkTertiary
+import com.sonix.player.ui.theme.VioletPrimary
 
 @Composable
 fun PlayerBar(

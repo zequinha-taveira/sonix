@@ -1,4 +1,4 @@
-package com.vibeflow.player.ui.components
+package com.sonix.player.ui.components
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -25,10 +25,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.vibeflow.player.data.Track
-import com.vibeflow.player.ui.theme.CyanSecondary
-import com.vibeflow.player.ui.theme.PinkTertiary
-import com.vibeflow.player.ui.theme.VioletPrimary
+import com.sonix.player.data.Track
+import com.sonix.player.ui.theme.CyanSecondary
+import com.sonix.player.ui.theme.PinkTertiary
+import com.sonix.player.ui.theme.VioletPrimary
 
 @Composable
 fun TrackRow(

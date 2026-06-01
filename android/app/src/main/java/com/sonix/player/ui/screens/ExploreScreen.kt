@@ -1,4 +1,4 @@
-package com.vibeflow.player.ui.screens
+package com.sonix.player.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,13 +18,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.vibeflow.player.data.Track
-import com.vibeflow.player.player.PlaybackState
-import com.vibeflow.player.ui.components.TrackRow
-import com.vibeflow.player.ui.theme.CyanSecondary
-import com.vibeflow.player.ui.theme.DarkBackground
-import com.vibeflow.player.ui.theme.PinkTertiary
-import com.vibeflow.player.ui.theme.VioletPrimary
+import com.sonix.player.data.Track
+import com.sonix.player.player.PlaybackState
+import com.sonix.player.ui.components.TrackRow
+import com.sonix.player.ui.theme.CyanSecondary
+import com.sonix.player.ui.theme.DarkBackground
+import com.sonix.player.ui.theme.PinkTertiary
+import com.sonix.player.ui.theme.VioletPrimary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,7 +79,7 @@ fun ExploreScreen(
         ) {
             Column {
                 Text(
-                    text = "VibeFlow",
+                    text = "Sonix",
                     fontSize = 32.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White

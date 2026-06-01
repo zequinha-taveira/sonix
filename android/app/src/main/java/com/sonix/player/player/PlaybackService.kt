@@ -1,4 +1,4 @@
-package com.vibeflow.player.player
+package com.sonix.player.player
 
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi

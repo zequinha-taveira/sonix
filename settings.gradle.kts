@@ -1,1 +1,1 @@
-rootProject.name = "open-source-music-player"
+rootProject.name = "sonix"

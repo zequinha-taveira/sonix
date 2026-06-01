@@ -1,4 +1,4 @@
-package com.vibeflow.player.data
+package com.sonix.player.data
 
 data class Track(
     val id: String,

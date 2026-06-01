@@ -1,9 +1,9 @@
-const CACHE_NAME = 'vibeflow-app-cache-v1';
+const CACHE_NAME = 'sonix-app-cache-v1';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
-  './open-source-music-player.js',
+  './sonix.js',
   'https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap',
   'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
 ];

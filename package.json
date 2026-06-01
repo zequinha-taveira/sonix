@@ -1,7 +1,7 @@
 {
-  "name": "open-source-music-player",
+  "name": "sonix",
   "version": "1.0.0",
-  "description": "Open-Source Music Player with offline capability, built with Kotlin/JS + CSS",
+  "description": "Sonix - Open-Source Music Player with offline capability, built with Kotlin/JS + CSS",
   "scripts": {
     "dev": "gradle-8.5\\bin\\gradle.bat jsBrowserDevelopmentRun --continuous",
     "build": "gradle-8.5\\bin\\gradle.bat jsBrowserProductionWebpack"

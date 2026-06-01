@@ -71,7 +71,7 @@ jobs:
         draft: false
         prerelease: false
         files: |
-          android/app/build/outputs/apk/release/app-release.apk
-          android/app/build/outputs/apk/debug/app-debug.apk
+          android/app/build/outputs/apk/release/*.apk
+          android/app/build/outputs/apk/debug/*.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

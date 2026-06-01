@@ -1,0 +1,31 @@
+# Windows / Mac
+Thumbs.db
+.DS_Store
+
+# IntelliJ IDEA / Android Studio
+.idea/
+*.iml
+*.iws
+*.ipr
+.gradle/
+local.properties
+
+# Gradle
+build/
+.gradle/
+.navigation/
+
+# Android build outputs
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Kotlin / JS compiler logs
+kotlin-js-store/

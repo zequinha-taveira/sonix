@@ -1,0 +1,143 @@
+package com.vibeflow.player
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.vibeflow.player.data.MusicRepository
+import com.vibeflow.player.player.AudioPlayerManager
+import com.vibeflow.player.ui.components.PlayerBar
+import com.vibeflow.player.ui.screens.DownloadsScreen
+import com.vibeflow.player.ui.screens.ExploreScreen
+import com.vibeflow.player.ui.theme.CyanSecondary
+import com.vibeflow.player.ui.theme.DarkSurface
+import com.vibeflow.player.ui.theme.VibeFlowTheme
+import com.vibeflow.player.ui.theme.VioletPrimary
+
+class MainActivity : ComponentActivity() {
+
+    private lateinit var repository: MusicRepository
+    private lateinit var playerManager: AudioPlayerManager
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        repository = MusicRepository(applicationContext)
+        playerManager = AudioPlayerManager(applicationContext)
+
+        setContent {
+            VibeFlowTheme {
+                var currentTab by remember { mutableStateOf("explore") }
+                val tracks by repository.tracks.collectAsState()
+                val playbackState by playerManager.playbackState.collectAsState()
+
+                // Keep playback manager playlist up to date when tracks list updates (e.g., download complete)
+                LaunchedEffect(tracks) {
+                    playerManager.setPlaylist(tracks)
+                }
+
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    bottomBar = {
+                        NavigationBar(
+                            containerColor = DarkSurface.copy(alpha = 0.9f),
+                            contentColor = Color.White
+                        ) {
+                            NavigationBarItem(
+                                selected = currentTab == "explore",
+                                onClick = { currentTab = "explore" },
+                                icon = { Icon(Icons.Default.Explore, contentDescription = "Explore") },
+                                label = { Text("Explorar") },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = VioletPrimary,
+                                    selectedTextColor = VioletPrimary,
+                                    indicatorColor = Color.White.copy(alpha = 0.1f),
+                                    unselectedIconColor = Color.White.copy(alpha = 0.6f),
+                                    unselectedTextColor = Color.White.copy(alpha = 0.6f)
+                                )
+                            )
+                            NavigationBarItem(
+                                selected = currentTab == "downloads",
+                                onClick = { currentTab = "downloads" },
+                                icon = { Icon(Icons.Default.DownloadDone, contentDescription = "Downloads") },
+                                label = { Text("Downloads") },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = CyanSecondary,
+                                    selectedTextColor = CyanSecondary,
+                                    indicatorColor = Color.White.copy(alpha = 0.1f),
+                                    unselectedIconColor = Color.White.copy(alpha = 0.6f),
+                                    unselectedTextColor = Color.White.copy(alpha = 0.6f)
+                                )
+                            )
+                        }
+                    }
+                ) { innerPadding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                    ) {
+                        // Switch between Screens
+                        when (currentTab) {
+                            "explore" -> {
+                                ExploreScreen(
+                                    tracks = tracks,
+                                    playbackState = playbackState,
+                                    onTrackClick = { playerManager.play(it) },
+                                    onDownloadClick = { repository.downloadTrack(it) },
+                                    onDeleteClick = { repository.deleteTrack(it) }
+                                )
+                            }
+                            "downloads" -> {
+                                DownloadsScreen(
+                                    tracks = tracks,
+                                    playbackState = playbackState,
+                                    onTrackClick = { playerManager.play(it) },
+                                    onDeleteClick = { repository.deleteTrack(it) }
+                                )
+                            }
+                        }
+
+                        // Floating Player Bar if a track is loaded
+                        if (playbackState.currentTrack != null) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = 8.dp)
+                            ) {
+                                PlayerBar(
+                                    state = playbackState,
+                                    onPlayPauseClick = { playerManager.togglePlay() },
+                                    onNextClick = { playerManager.next() },
+                                    onPrevClick = { playerManager.prev() },
+                                    onSeek = { playerManager.seekTo(it) },
+                                    onShuffleClick = { playerManager.toggleShuffle() },
+                                    onRepeatClick = { playerManager.toggleRepeat() },
+                                    onVolumeChange = { playerManager.setVolume(it) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        playerManager.release()
+        super.onDestroy()
+    }
+}

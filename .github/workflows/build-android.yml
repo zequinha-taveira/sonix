@@ -1,7 +1,5 @@
 name: Build VibeFlow Android APK
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 on:
   push:
@@ -34,7 +32,7 @@ jobs:
         ./gradlew assembleDebug --no-daemon
 
     - name: Upload Debug APK
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v6
       with:
         name: vibeflow-debug-apk
         path: android/app/build/outputs/apk/debug/app-debug.apk

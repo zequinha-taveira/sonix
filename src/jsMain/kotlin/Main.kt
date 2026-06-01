@@ -570,116 +570,222 @@ class MusicPlayerApp {
         container.innerHTML = ""
 
         val isOfflineView = currentView == View.DOWNLOADS
-        
-        val filteredTracks = tracks.filter { track ->
-            val matchesSearch = track.title.lowercase().contains(searchQuery.lowercase()) ||
-                                track.artist.lowercase().contains(searchQuery.lowercase())
-            val matchesView = if (isOfflineView) downloadedTrackIds.contains(track.id) else true
-            matchesSearch && matchesView
-        }
+        val availableTracks = if (isOfflineView) tracks.filter { downloadedTrackIds.contains(it.id) } else tracks
 
-        if (filteredTracks.isEmpty()) {
-            val empty = document.createElement("div") as HTMLElement
-            empty.className = "empty-state"
-            if (isOfflineView) {
-                empty.innerHTML = """
-                    <i class="fa-solid fa-circle-down"></i>
-                    <h3>No downloaded tracks yet</h3>
-                    <p>Go to the Explore tab and click the download button on any track to save it offline.</p>
-                """.trimIndent()
-            } else {
+        if (searchQuery.isBlank()) {
+            if (availableTracks.isEmpty()) {
+                val empty = document.createElement("div") as HTMLElement
+                empty.className = "empty-state"
+                if (isOfflineView) {
+                    empty.innerHTML = """
+                        <i class="fa-solid fa-circle-down"></i>
+                        <h3>No downloaded tracks yet</h3>
+                        <p>Go to the Explore tab and click the download button on any track to save it offline.</p>
+                    """.trimIndent()
+                } else {
+                    empty.innerHTML = """
+                        <i class="fa-solid fa-music"></i>
+                        <h3>No tracks available</h3>
+                        <p>Something went wrong or the library is empty.</p>
+                    """.trimIndent()
+                }
+                container.appendChild(empty)
+                return
+            }
+
+            availableTracks.forEach { track ->
+                renderTrackRow(container, track)
+            }
+        } else {
+            val matchingArtists = availableTracks.map { it.artist }.distinct().filter { it.lowercase().contains(searchQuery.lowercase()) }
+            val matchingAlbums = availableTracks.map { it.album to it.artist }.distinctBy { it.first }.filter { it.first.lowercase().contains(searchQuery.lowercase()) }
+            val matchingTracks = availableTracks.filter { it.title.lowercase().contains(searchQuery.lowercase()) }
+
+            if (matchingArtists.isEmpty() && matchingAlbums.isEmpty() && matchingTracks.isEmpty()) {
+                val empty = document.createElement("div") as HTMLElement
+                empty.className = "empty-state"
                 empty.innerHTML = """
                     <i class="fa-solid fa-music"></i>
                     <h3>No results found</h3>
                     <p>Try searching for a different keyword or check spelling.</p>
                 """.trimIndent()
+                container.appendChild(empty)
+                return
             }
-            container.appendChild(empty)
-            return
+
+            // Render Artists
+            if (matchingArtists.isNotEmpty()) {
+                val secHeader = document.createElement("div") as HTMLElement
+                secHeader.className = "search-section-header"
+                secHeader.innerText = "Artists"
+                container.appendChild(secHeader)
+
+                matchingArtists.forEach { artist ->
+                    val row = document.createElement("div") as HTMLElement
+                    row.className = "search-item-row artist-row"
+                    row.innerHTML = """
+                        <div class="row-left">
+                            <div class="item-art artist-art">
+                                <i class="fa-solid fa-user"></i>
+                            </div>
+                            <div class="item-details">
+                                <span class="item-title">$artist</span>
+                                <span class="item-subtitle">Artist</span>
+                            </div>
+                        </div>
+                        <button class="action-btn play-group-btn" title="Play Artist">
+                            <i class="fa-solid fa-play"></i>
+                        </button>
+                    """.trimIndent()
+                    
+                    row.addEventListener("click", {
+                        playArtist(artist, isOfflineView)
+                    })
+                    container.appendChild(row)
+                }
+            }
+
+            // Render Albums
+            if (matchingAlbums.isNotEmpty()) {
+                val secHeader = document.createElement("div") as HTMLElement
+                secHeader.className = "search-section-header"
+                secHeader.innerText = "Albums"
+                container.appendChild(secHeader)
+
+                matchingAlbums.forEach { (album, artist) ->
+                    val row = document.createElement("div") as HTMLElement
+                    row.className = "search-item-row album-row"
+                    row.innerHTML = """
+                        <div class="row-left">
+                            <div class="item-art album-art">
+                                <i class="fa-solid fa-compact-disc"></i>
+                            </div>
+                            <div class="item-details">
+                                <span class="item-title">$album</span>
+                                <span class="item-subtitle">Album • $artist</span>
+                            </div>
+                        </div>
+                        <button class="action-btn play-group-btn" title="Play Album">
+                            <i class="fa-solid fa-play"></i>
+                        </button>
+                    """.trimIndent()
+
+                    row.addEventListener("click", {
+                        playAlbum(album, isOfflineView)
+                    })
+                    container.appendChild(row)
+                }
+            }
+
+            // Render Tracks
+            if (matchingTracks.isNotEmpty()) {
+                val secHeader = document.createElement("div") as HTMLElement
+                secHeader.className = "search-section-header"
+                secHeader.innerText = "Tracks"
+                container.appendChild(secHeader)
+
+                matchingTracks.forEach { track ->
+                    renderTrackRow(container, track)
+                }
+            }
+        }
+    }
+
+    private fun renderTrackRow(container: HTMLElement, track: Track) {
+        val row = document.createElement("div") as HTMLElement
+        val isActive = currentTrack?.id == track.id
+        val isPlayingRow = isActive && isPlaying
+        
+        row.className = "track-row" + (if (isActive) " active" else "")
+        
+        val isDownloaded = downloadedTrackIds.contains(track.id)
+        val isDownloading = downloadingTrackIds.contains(track.id)
+
+        // Setup icons based on state
+        val playIcon = if (isPlayingRow) "fa-pause" else "fa-play"
+        val downloadIconClass = when {
+            isDownloading -> "fa-spinner downloading"
+            isDownloaded -> "fa-circle-check downloaded"
+            else -> "fa-arrow-down"
         }
 
-        filteredTracks.forEach { track ->
-            val row = document.createElement("div") as HTMLElement
-            val isActive = currentTrack?.id == track.id
-            val isPlayingRow = isActive && isPlaying
-            
-            row.className = "track-row" + (if (isActive) " active" else "")
-            
-            val isDownloaded = downloadedTrackIds.contains(track.id)
-            val isDownloading = downloadingTrackIds.contains(track.id)
-
-            // Setup icons based on state
-            val playIcon = if (isPlayingRow) "fa-pause" else "fa-play"
-            val downloadIconClass = when {
-                isDownloading -> "fa-spinner downloading"
-                isDownloaded -> "fa-circle-check downloaded"
-                else -> "fa-arrow-down"
-            }
-
-            row.innerHTML = """
-                <button class="track-play-btn">
-                    <i class="fa-solid $playIcon"></i>
+        row.innerHTML = """
+            <button class="track-play-btn">
+                <i class="fa-solid $playIcon"></i>
+            </button>
+            <div class="track-info">
+                <div class="track-art">${track.title.take(1)}</div>
+                <div class="track-details">
+                    <span class="track-title">${track.title}</span>
+                    <span class="track-artist">${track.artist}</span>
+                </div>
+            </div>
+            <span class="track-album">${track.album}</span>
+            <span class="track-duration">${track.duration}</span>
+            <div class="track-actions">
+                <button class="action-btn download-btn" title="${if (isDownloaded) "Delete Offline Cache" else "Download Offline"}">
+                    <i class="fa-solid $downloadIconClass"></i>
                 </button>
-                <div class="track-info">
-                    <div class="track-art">${track.title.take(1)}</div>
-                    <div class="track-details">
-                        <span class="track-title">${track.title}</span>
-                        <span class="track-artist">${track.artist}</span>
-                    </div>
-                </div>
-                <span class="track-album">${track.album}</span>
-                <span class="track-duration">${track.duration}</span>
-                <div class="track-actions">
-                    <button class="action-btn download-btn" title="${if (isDownloaded) "Delete Offline Cache" else "Download Offline"}">
-                        <i class="fa-solid $downloadIconClass"></i>
-                    </button>
-                </div>
-            """.trimIndent()
+            </div>
+        """.trimIndent()
 
-            // Play track on clicking anywhere on the row except action buttons
-            row.addEventListener("click", { event ->
-                val target = event.target as? HTMLElement
-                if (target?.closest(".action-btn") == null) {
-                    if (isActive) {
-                        togglePlay()
-                    } else {
-                        loadTrack(track, autoPlay = true)
+        // Play track on clicking anywhere on the row except action buttons
+        row.addEventListener("click", { event ->
+            val target = event.target as? HTMLElement
+            if (target?.closest(".action-btn") == null) {
+                if (isActive) {
+                    togglePlay()
+                } else {
+                    loadTrack(track, autoPlay = true)
+                }
+            }
+        })
+
+        // Download button action
+        val dlBtn = row.querySelector(".download-btn") as HTMLElement
+        dlBtn.addEventListener("click", { event ->
+            event.stopPropagation()
+            if (isDownloaded) {
+                // Delete from offline cache
+                OfflineManager.deleteTrack(track.url) { success ->
+                    if (success) {
+                        downloadedTrackIds.remove(track.id)
+                        renderTrackList()
                     }
                 }
-            })
-
-            // Download button action
-            val dlBtn = row.querySelector(".download-btn") as HTMLElement
-            dlBtn.addEventListener("click", { event ->
-                event.stopPropagation()
-                if (isDownloaded) {
-                    // Delete from offline cache
-                    OfflineManager.deleteTrack(track.url) { success ->
+            } else if (!isDownloading) {
+                // Add to cache
+                downloadingTrackIds.add(track.id)
+                renderTrackList()
+                OfflineManager.downloadTrack(track.url, 
+                    onProgress = {
+                        // Already marked in downloadingTrackIds
+                    },
+                    onComplete = { success ->
+                        downloadingTrackIds.remove(track.id)
                         if (success) {
-                            downloadedTrackIds.remove(track.id)
-                            renderTrackList()
+                            downloadedTrackIds.add(track.id)
                         }
+                        renderTrackList()
                     }
-                } else if (!isDownloading) {
-                    // Add to cache
-                    downloadingTrackIds.add(track.id)
-                    renderTrackList()
-                    OfflineManager.downloadTrack(track.url, 
-                        onProgress = {
-                            // Already marked in downloadingTrackIds
-                        },
-                        onComplete = { success ->
-                            downloadingTrackIds.remove(track.id)
-                            if (success) {
-                                downloadedTrackIds.add(track.id)
-                            }
-                            renderTrackList()
-                        }
-                    )
-                }
-            })
+                )
+            }
+        })
 
-            container.appendChild(row)
+        container.appendChild(row)
+    }
+
+    private fun playArtist(artistName: String, offlineOnly: Boolean) {
+        val artistTracks = tracks.filter { it.artist == artistName && (!offlineOnly || downloadedTrackIds.contains(it.id)) }
+        if (artistTracks.isNotEmpty()) {
+            loadTrack(artistTracks.first(), autoPlay = true)
+        }
+    }
+
+    private fun playAlbum(albumName: String, offlineOnly: Boolean) {
+        val albumTracks = tracks.filter { it.album == albumName && (!offlineOnly || downloadedTrackIds.contains(it.id)) }
+        if (albumTracks.isNotEmpty()) {
+            loadTrack(albumTracks.first(), autoPlay = true)
         }
     }
 

@@ -97,7 +97,21 @@ class MainActivity : ComponentActivity() {
                                     playbackState = playbackState,
                                     onTrackClick = { playerManager.play(it) },
                                     onDownloadClick = { repository.downloadTrack(it) },
-                                    onDeleteClick = { repository.deleteTrack(it) }
+                                    onDeleteClick = { repository.deleteTrack(it) },
+                                    onPlayArtistClick = { artist ->
+                                        val artistTracks = tracks.filter { it.artist == artist }
+                                        if (artistTracks.isNotEmpty()) {
+                                            playerManager.setPlaylist(artistTracks)
+                                            playerManager.play(artistTracks.first())
+                                        }
+                                    },
+                                    onPlayAlbumClick = { album ->
+                                        val albumTracks = tracks.filter { it.album == album }
+                                        if (albumTracks.isNotEmpty()) {
+                                            playerManager.setPlaylist(albumTracks)
+                                            playerManager.play(albumTracks.first())
+                                        }
+                                    }
                                 )
                             }
                             "downloads" -> {
@@ -105,7 +119,21 @@ class MainActivity : ComponentActivity() {
                                     tracks = tracks,
                                     playbackState = playbackState,
                                     onTrackClick = { playerManager.play(it) },
-                                    onDeleteClick = { repository.deleteTrack(it) }
+                                    onDeleteClick = { repository.deleteTrack(it) },
+                                    onPlayArtistClick = { artist ->
+                                        val artistTracks = tracks.filter { it.artist == artist && it.isDownloaded }
+                                        if (artistTracks.isNotEmpty()) {
+                                            playerManager.setPlaylist(artistTracks)
+                                            playerManager.play(artistTracks.first())
+                                        }
+                                    },
+                                    onPlayAlbumClick = { album ->
+                                        val albumTracks = tracks.filter { it.album == album && it.isDownloaded }
+                                        if (albumTracks.isNotEmpty()) {
+                                            playerManager.setPlaylist(albumTracks)
+                                            playerManager.play(albumTracks.first())
+                                        }
+                                    }
                                 )
                             }
                         }

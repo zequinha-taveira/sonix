@@ -5,10 +5,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -39,39 +42,48 @@ fun ExploreScreen(
     onlineSearchResults: List<Track>,
     isSearchingOnline: Boolean,
     onlineSearchError: String?,
+    isSyncing: Boolean,
     playbackState: PlaybackState,
-    onSearchOnline: (String) -> Unit,
+    onSearchOnline: (String, String) -> Unit,
     onClearOnlineSearch: () -> Unit,
     onTrackClick: (Track) -> Unit,
     onDownloadClick: (Track) -> Unit,
     onDeleteClick: (Track) -> Unit,
     onPlayArtistClick: (String) -> Unit,
     onPlayAlbumClick: (String) -> Unit,
+    onAddToPlaylistClick: (Track) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    var selectedSourceFilter by remember { mutableStateOf("Todas as Origens") }
+    var selectedTypeFilter by remember { mutableStateOf("Tudo") }
 
-    LaunchedEffect(searchQuery) {
+    LaunchedEffect(searchQuery, selectedSourceFilter) {
         if (searchQuery.isNotBlank()) {
             delay(300)
-            onSearchOnline(searchQuery)
+            onSearchOnline(searchQuery, selectedSourceFilter)
         } else {
             onClearOnlineSearch()
         }
     }
 
-    val matchingArtists = remember(tracks, searchQuery) {
-        if (searchQuery.isBlank()) emptyList<String>()
+    val renderArtists = remember(selectedTypeFilter) { selectedTypeFilter == "Tudo" || selectedTypeFilter == "Artistas" }
+    val renderAlbums = remember(selectedTypeFilter) { selectedTypeFilter == "Tudo" || selectedTypeFilter == "Álbuns" }
+    val renderTracks = remember(selectedTypeFilter) { selectedTypeFilter == "Tudo" || selectedTypeFilter == "Músicas" }
+
+    val matchingArtists = remember(tracks, searchQuery, renderArtists) {
+        if (!renderArtists || searchQuery.isBlank()) emptyList<String>()
         else tracks.map { it.artist }.distinct().filter { it.contains(searchQuery, ignoreCase = true) }
     }
 
-    val matchingAlbums = remember(tracks, searchQuery) {
-        if (searchQuery.isBlank()) emptyList<Pair<String, String>>()
+    val matchingAlbums = remember(tracks, searchQuery, renderAlbums) {
+        if (!renderAlbums || searchQuery.isBlank()) emptyList<Pair<String, String>>()
         else tracks.map { it.album to it.artist }.distinctBy { it.first }.filter { it.first.contains(searchQuery, ignoreCase = true) }
     }
 
-    val matchingTracks = remember(tracks, searchQuery) {
-        if (searchQuery.isBlank()) tracks
+    val matchingTracks = remember(tracks, searchQuery, renderTracks) {
+        if (!renderTracks) emptyList<Track>()
+        else if (searchQuery.isBlank()) tracks
         else tracks.filter { it.title.contains(searchQuery, ignoreCase = true) }
     }
 
@@ -81,14 +93,58 @@ fun ExploreScreen(
             .background(DarkBackground)
             .padding(horizontal = 16.dp)
     ) {
-        Spacer(modifier = Modifier.height(16.dp))
+        // Upper Title & Cloud Sync status
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 16.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Explorar",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
+            ) {
+                val syncText = if (isSyncing) "Sincronizando..." else "Sincronizado"
+                val syncColor = if (isSyncing) CyanSecondary else Color(0xFF10B981)
+
+                if (isSyncing) {
+                    CircularProgressIndicator(
+                        color = syncColor,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(12.dp)
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Sincronizado",
+                        tint = syncColor,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = syncText,
+                    color = syncColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
 
         // Hero Banner
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(140.dp)
-                .clip(RoundedCornerShape(24.dp))
+                .height(110.dp)
+                .clip(RoundedCornerShape(20.dp))
                 .background(
                     Brush.linearGradient(
                         colors = listOf(
@@ -98,29 +154,29 @@ fun ExploreScreen(
                         )
                     )
                 )
-                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp))
-                .padding(24.dp),
+                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp))
+                .padding(20.dp),
             contentAlignment = Alignment.CenterStart
         ) {
             Column {
                 Text(
-                    text = "Sonix",
-                    fontSize = 32.sp,
+                    text = "Sonix Premium",
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Música livre para download offline",
-                    fontSize = 14.sp,
+                    text = "Busque, crie playlists e ouça offline sem interrupções",
+                    fontSize = 12.sp,
                     color = Color.White.copy(alpha = 0.8f)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        // Search Bar with Frosted Glass look
+        // Search Bar
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
@@ -140,42 +196,126 @@ fun ExploreScreen(
             singleLine = true
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Filter Rows Chips
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Source Filters (Only show when searching online)
+            if (searchQuery.isNotEmpty()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Origem: ",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White.copy(alpha = 0.4f),
+                        modifier = Modifier.width(50.dp)
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val sources = listOf("Todas as Origens", "iTunes", "Deezer")
+                        items(sources) { src ->
+                            CustomFilterChip(
+                                text = if (src == "Todas as Origens") "Todas" else src,
+                                selected = selectedSourceFilter == src,
+                                onClick = { selectedSourceFilter = src }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Content Type Filters
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Tipo: ",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White.copy(alpha = 0.4f),
+                    modifier = Modifier.width(50.dp)
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    val types = listOf("Tudo", "Músicas", "Artistas", "Álbuns")
+                    items(types) { typ ->
+                        CustomFilterChip(
+                            text = typ,
+                            selected = selectedTypeFilter == typ,
+                            onClick = { selectedTypeFilter = typ }
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         if (searchQuery.isBlank()) {
-            Text(
-                text = "Músicas Disponíveis",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                modifier = Modifier.padding(bottom = 12.dp)
-            )
-
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 120.dp) // Padding for PlayerBar
-            ) {
-                items(tracks, key = { it.id }) { track ->
-                    val isCurrent = playbackState.currentTrack?.id == track.id
-                    TrackRow(
-                        track = track,
-                        isPlaying = playbackState.isPlaying,
-                        isCurrentTrack = isCurrent,
-                        onTrackClick = { onTrackClick(track) },
-                        onDownloadClick = { onDownloadClick(track) },
-                        onDeleteClick = { onDeleteClick(track) }
+            if (selectedTypeFilter != "Tudo" && selectedTypeFilter != "Músicas") {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Use a busca para filtrar por artistas ou álbuns",
+                        color = Color.White.copy(alpha = 0.4f),
+                        fontSize = 14.sp
                     )
+                }
+            } else {
+                Text(
+                    text = "Músicas Disponíveis",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 120.dp)
+                ) {
+                    items(tracks, key = { it.id }) { track ->
+                        val isCurrent = playbackState.currentTrack?.id == track.id
+                        TrackRow(
+                            track = track,
+                            isPlaying = playbackState.isPlaying,
+                            isCurrentTrack = isCurrent,
+                            onTrackClick = { onTrackClick(track) },
+                            onDownloadClick = { onDownloadClick(track) },
+                            onDeleteClick = { onDeleteClick(track) },
+                            onPlaylistClick = { onAddToPlaylistClick(track) }
+                        )
+                    }
                 }
             }
         } else {
             if (matchingArtists.isEmpty() && matchingAlbums.isEmpty() && matchingTracks.isEmpty() && onlineSearchResults.isEmpty() && !isSearchingOnline) {
                 Box(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (onlineSearchError != null) "Sem conexão com a internet" else "Nenhuma música encontrada",
+                        text = if (onlineSearchError != null) "Sem conexão com a internet" else "Nenhum resultado encontrado",
                         color = Color.White.copy(alpha = 0.5f),
                         fontSize = 14.sp
                     )
@@ -184,14 +324,14 @@ fun ExploreScreen(
                 LazyColumn(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 120.dp) // Padding for PlayerBar
+                    contentPadding = PaddingValues(bottom = 120.dp)
                 ) {
                     // Artists Section
                     if (matchingArtists.isNotEmpty()) {
                         item {
                             Text(
                                 text = "Artistas Locais",
-                                fontSize = 16.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White.copy(alpha = 0.7f),
                                 modifier = Modifier.padding(vertical = 8.dp)
@@ -207,7 +347,7 @@ fun ExploreScreen(
                         item {
                             Text(
                                 text = "Álbuns Locais",
-                                fontSize = 16.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White.copy(alpha = 0.7f),
                                 modifier = Modifier.padding(vertical = 8.dp)
@@ -223,7 +363,7 @@ fun ExploreScreen(
                         item {
                             Text(
                                 text = "Músicas Locais",
-                                fontSize = 16.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White.copy(alpha = 0.7f),
                                 modifier = Modifier.padding(vertical = 8.dp)
@@ -237,65 +377,69 @@ fun ExploreScreen(
                                 isCurrentTrack = isCurrent,
                                 onTrackClick = { onTrackClick(track) },
                                 onDownloadClick = { onDownloadClick(track) },
-                                onDeleteClick = { onDeleteClick(track) }
+                                onDeleteClick = { onDeleteClick(track) },
+                                onPlaylistClick = { onAddToPlaylistClick(track) }
                             )
                         }
                     }
 
                     // Online Results Section
-                    item {
-                        Text(
-                            text = "Resultados Online",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White.copy(alpha = 0.7f),
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
-                    }
-
-                    if (isSearchingOnline) {
+                    if (renderTracks) {
                         item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(
-                                    color = VioletPrimary,
-                                    modifier = Modifier.size(24.dp)
+                            Text(
+                                text = "Resultados Online",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
+
+                        if (isSearchingOnline) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        color = VioletPrimary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                        } else if (onlineSearchError != null) {
+                            item {
+                                Text(
+                                    text = "Sem conexão com a internet.",
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.padding(vertical = 8.dp)
                                 )
                             }
-                        }
-                    } else if (onlineSearchError != null) {
-                        item {
-                            Text(
-                                text = "Sem conexão com a internet.",
-                                color = Color.White.copy(alpha = 0.5f),
-                                fontSize = 14.sp,
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
-                        }
-                    } else if (onlineSearchResults.isEmpty()) {
-                        item {
-                            Text(
-                                text = "Nenhuma música online encontrada.",
-                                color = Color.White.copy(alpha = 0.5f),
-                                fontSize = 14.sp,
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
-                        }
-                    } else {
-                        items(onlineSearchResults, key = { it.id }) { track ->
-                            val isCurrent = playbackState.currentTrack?.id == track.id
-                            TrackRow(
-                                track = track,
-                                isPlaying = playbackState.isPlaying,
-                                isCurrentTrack = isCurrent,
-                                onTrackClick = { onTrackClick(track) },
-                                onDownloadClick = { onDownloadClick(track) },
-                                onDeleteClick = { onDeleteClick(track) }
-                            )
+                        } else if (onlineSearchResults.isEmpty()) {
+                            item {
+                                Text(
+                                    text = "Nenhuma música online encontrada.",
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                            }
+                        } else {
+                            items(onlineSearchResults, key = { it.id }) { track ->
+                                val isCurrent = playbackState.currentTrack?.id == track.id
+                                TrackRow(
+                                    track = track,
+                                    isPlaying = playbackState.isPlaying,
+                                    isCurrentTrack = isCurrent,
+                                    onTrackClick = { onTrackClick(track) },
+                                    onDownloadClick = { onDownloadClick(track) },
+                                    onDeleteClick = { onDeleteClick(track) },
+                                    onPlaylistClick = { onAddToPlaylistClick(track) }
+                                )
+                            }
                         }
                     }
                 }
@@ -305,143 +449,40 @@ fun ExploreScreen(
 }
 
 @Composable
-fun ArtistRow(
-    artist: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+fun CustomFilterChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit
 ) {
     Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.White.copy(alpha = 0.05f))
-            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
-            .clickable { onClick() }
-            .padding(12.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(50.dp)
-                    .clip(androidx.compose.foundation.shape.CircleShape)
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(VioletPrimary, CyanSecondary)
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                if (selected) {
+                    Brush.linearGradient(colors = listOf(VioletPrimary, CyanSecondary))
+                } else {
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.05f),
+                            Color.White.copy(alpha = 0.05f)
                         )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = "Artist",
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(
-                    text = artist,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "Artista",
-                    color = Color.White.copy(alpha = 0.6f),
-                    fontSize = 12.sp
-                )
-            }
-
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = "Play Artist",
-                tint = Color.White.copy(alpha = 0.8f),
-                modifier = Modifier.size(24.dp)
+                    )
+                }
             )
-        }
+            .border(
+                width = 1.dp,
+                color = if (selected) Color.Transparent else Color.White.copy(alpha = 0.1f),
+                shape = RoundedCornerShape(20.dp)
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = if (selected) Color.White else Color.White.copy(alpha = 0.6f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
-
-@Composable
-fun AlbumRow(
-    album: String,
-    artist: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.White.copy(alpha = 0.05f))
-            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
-            .clickable { onClick() }
-            .padding(12.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(50.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(PinkTertiary, VioletPrimary)
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Album,
-                    contentDescription = "Album",
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(
-                    text = album,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "Álbum • $artist",
-                    color = Color.White.copy(alpha = 0.6f),
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = "Play Album",
-                tint = Color.White.copy(alpha = 0.8f),
-                modifier = Modifier.size(24.dp)
-            )
-        }
-    }
-}
-

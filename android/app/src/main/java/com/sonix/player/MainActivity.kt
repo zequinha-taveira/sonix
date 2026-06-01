@@ -3,26 +3,36 @@ package com.sonix.player
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.sonix.player.data.MusicRepository
+import com.sonix.player.data.Playlist
+import com.sonix.player.data.Track
 import com.sonix.player.player.AudioPlayerManager
 import com.sonix.player.ui.components.PlayerBar
 import com.sonix.player.ui.screens.DownloadsScreen
 import com.sonix.player.ui.screens.ExploreScreen
+import com.sonix.player.ui.screens.PlaylistsScreen
 import com.sonix.player.ui.theme.CyanSecondary
 import com.sonix.player.ui.theme.DarkSurface
+import com.sonix.player.ui.theme.PinkTertiary
 import com.sonix.player.ui.theme.SonixTheme
 import com.sonix.player.ui.theme.VioletPrimary
 
@@ -44,7 +54,109 @@ class MainActivity : ComponentActivity() {
                 val onlineSearchResults by repository.onlineSearchResults.collectAsState()
                 val isSearchingOnline by repository.isSearchingOnline.collectAsState()
                 val onlineSearchError by repository.onlineSearchError.collectAsState()
+                val playlists by repository.playlists.collectAsState()
+                val isSyncing by repository.isSyncing.collectAsState()
                 val playbackState by playerManager.playbackState.collectAsState()
+
+                var showPlaylistPickerDialog by remember { mutableStateOf(false) }
+                var trackToAddToPlaylist by remember { mutableStateOf<Track?>(null) }
+
+                // Dialog modal to select target playlist
+                if (showPlaylistPickerDialog && trackToAddToPlaylist != null) {
+                    val track = trackToAddToPlaylist!!
+                    AlertDialog(
+                        onDismissRequest = {
+                            showPlaylistPickerDialog = false
+                            trackToAddToPlaylist = null
+                        },
+                        title = {
+                            Text(
+                                text = "Adicionar à Playlist",
+                                color = Color.White,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
+                        },
+                        text = {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "Adicionar \"${track.title}\" a:",
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+
+                                if (playlists.isEmpty()) {
+                                    Text(
+                                        text = "Nenhuma playlist criada. Crie uma na aba Playlists!",
+                                        color = PinkTertiary,
+                                        fontSize = 14.sp,
+                                        modifier = Modifier.padding(vertical = 12.dp)
+                                    )
+                                } else {
+                                    LazyColumn(
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier.heightIn(max = 200.dp)
+                                    ) {
+                                        items(playlists) { playlist ->
+                                            val hasTrack = playlist.trackIds.contains(track.id)
+                                            val itemColor = if (hasTrack) CyanSecondary else Color.White
+
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .clickable {
+                                                        if (hasTrack) {
+                                                            repository.removeTrackFromPlaylist(playlist.id, track.id)
+                                                        } else {
+                                                            repository.addTrackToPlaylist(playlist.id, track.id)
+                                                        }
+                                                        showPlaylistPickerDialog = false
+                                                        trackToAddToPlaylist = null
+                                                    }
+                                                    .padding(12.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = playlist.name,
+                                                    color = itemColor,
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                                    fontSize = 15.sp
+                                                )
+                                                if (hasTrack) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = "Adicionado",
+                                                        tint = CyanSecondary,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    showPlaylistPickerDialog = false
+                                    trackToAddToPlaylist = null
+                                }
+                            ) {
+                                Text("Fechar", color = Color.White)
+                            }
+                        },
+                        containerColor = Color(0xFF0F111A),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
+                    )
+                }
 
                 // Keep playback manager playlist up to date when tracks list updates (e.g., download complete)
                 LaunchedEffect(tracks, onlineSearchResults) {
@@ -84,6 +196,19 @@ class MainActivity : ComponentActivity() {
                                     unselectedTextColor = Color.White.copy(alpha = 0.6f)
                                 )
                             )
+                            NavigationBarItem(
+                                selected = currentTab == "playlists",
+                                onClick = { currentTab = "playlists" },
+                                icon = { Icon(Icons.Default.List, contentDescription = "Playlists") },
+                                label = { Text("Playlists") },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = VioletPrimary,
+                                    selectedTextColor = VioletPrimary,
+                                    indicatorColor = Color.White.copy(alpha = 0.1f),
+                                    unselectedIconColor = Color.White.copy(alpha = 0.6f),
+                                    unselectedTextColor = Color.White.copy(alpha = 0.6f)
+                                )
+                            )
                         }
                     }
                 ) { innerPadding ->
@@ -100,8 +225,9 @@ class MainActivity : ComponentActivity() {
                                     onlineSearchResults = onlineSearchResults,
                                     isSearchingOnline = isSearchingOnline,
                                     onlineSearchError = onlineSearchError,
+                                    isSyncing = isSyncing,
                                     playbackState = playbackState,
-                                    onSearchOnline = { query -> repository.searchOnline(query) },
+                                    onSearchOnline = { query, src -> repository.searchOnline(query, src) },
                                     onClearOnlineSearch = { repository.clearOnlineSearch() },
                                     onTrackClick = { playerManager.play(it) },
                                     onDownloadClick = { repository.downloadTrack(it) },
@@ -121,6 +247,10 @@ class MainActivity : ComponentActivity() {
                                             playerManager.setPlaylist(albumTracks)
                                             playerManager.play(albumTracks.first())
                                         }
+                                    },
+                                    onAddToPlaylistClick = {
+                                        trackToAddToPlaylist = it
+                                        showPlaylistPickerDialog = true
                                     }
                                 )
                             }
@@ -142,6 +272,29 @@ class MainActivity : ComponentActivity() {
                                         if (albumTracks.isNotEmpty()) {
                                             playerManager.setPlaylist(albumTracks)
                                             playerManager.play(albumTracks.first())
+                                        }
+                                    }
+                                )
+                            }
+                            "playlists" -> {
+                                PlaylistsScreen(
+                                    playlists = playlists,
+                                    tracks = (tracks + onlineSearchResults).distinctBy { it.id },
+                                    playbackState = playbackState,
+                                    onCreatePlaylist = { name ->
+                                        val id = "playlist_${System.currentTimeMillis()}"
+                                        repository.savePlaylist(Playlist(id, name, emptyList()))
+                                    },
+                                    onDeletePlaylist = { id -> repository.deletePlaylist(id) },
+                                    onTrackClick = { playerManager.play(it) },
+                                    onRemoveTrackFromPlaylist = { playlistId, trackId ->
+                                        repository.removeTrackFromPlaylist(playlistId, trackId)
+                                    },
+                                    onPlayPlaylist = { playlist ->
+                                        val playlistTracks = (tracks + onlineSearchResults).distinctBy { it.id }.filter { playlist.trackIds.contains(it.id) }
+                                        if (playlistTracks.isNotEmpty()) {
+                                            playerManager.setPlaylist(playlistTracks)
+                                            playerManager.play(playlistTracks.first())
                                         }
                                     }
                                 )

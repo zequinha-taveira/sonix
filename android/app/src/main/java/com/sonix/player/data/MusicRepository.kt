@@ -4,6 +4,8 @@ import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +20,7 @@ import java.net.URL
 
 class MusicRepository(private val context: Context) {
     private val coroutineScope = CoroutineScope(Dispatchers.IO)
+    private val aggregator = SearchAggregator(listOf(ITunesSearchProvider(), DeezerSearchProvider()))
 
     private val originalTracks = listOf(
         Track("1", "Ambient Waves", "Helix Instrumental", "SoundHelix Vol. 1", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", "6:12"),
@@ -39,10 +42,17 @@ class MusicRepository(private val context: Context) {
     private val _onlineSearchError = MutableStateFlow<String?>(null)
     val onlineSearchError: StateFlow<String?> = _onlineSearchError.asStateFlow()
 
+    private val _playlists = MutableStateFlow<List<Playlist>>(emptyList())
+    val playlists: StateFlow<List<Playlist>> = _playlists.asStateFlow()
+
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
     private var currentSearchJob: Job? = null
 
     init {
         refreshDownloadStates()
+        loadPlaylists()
     }
 
     fun refreshDownloadStates() {
@@ -118,6 +128,7 @@ class MusicRepository(private val context: Context) {
                 }
 
                 refreshDownloadStates()
+                triggerCloudSync()
 
                 _onlineSearchResults.value = _onlineSearchResults.value.map {
                     if (it.id == track.id) {
@@ -156,6 +167,7 @@ class MusicRepository(private val context: Context) {
                 deleteDownloadedTrackMetadata(track.id)
             }
             refreshDownloadStates()
+            triggerCloudSync()
 
             _onlineSearchResults.value = _onlineSearchResults.value.map {
                 if (it.id == track.id) {
@@ -169,7 +181,7 @@ class MusicRepository(private val context: Context) {
 
     // --- iTunes Online Search ---
 
-    fun searchOnline(query: String) {
+    fun searchOnline(query: String, allowedSource: String = "Todas as Origens") {
         currentSearchJob?.cancel()
         _onlineSearchError.value = null
         if (query.isBlank()) {
@@ -181,7 +193,7 @@ class MusicRepository(private val context: Context) {
         _isSearchingOnline.value = true
         currentSearchJob = coroutineScope.launch {
             try {
-                val results = fetchiTunesSongs(query)
+                val results = aggregator.search(query, allowedSource)
                 val updatedResults = results.map { track ->
                     val file = getLocalFile(track)
                     if (file.exists() && file.length() > 0) {
@@ -206,65 +218,6 @@ class MusicRepository(private val context: Context) {
         _onlineSearchResults.value = emptyList()
         _isSearchingOnline.value = false
         _onlineSearchError.value = null
-    }
-
-    private suspend fun fetchiTunesSongs(query: String): List<Track> = withContext(Dispatchers.IO) {
-        val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-        val urlString = "https://itunes.apple.com/search?term=$encodedQuery&media=music&entity=song&limit=15"
-        val url = URL(urlString)
-        val connection = url.openConnection() as HttpURLConnection
-        connection.requestMethod = "GET"
-        connection.connectTimeout = 5000
-        connection.readTimeout = 5000
-        
-        val responseCode = connection.responseCode
-        if (responseCode == HttpURLConnection.HTTP_OK) {
-            val responseText = connection.inputStream.bufferedReader().use { it.readText() }
-            parseiTunesResponse(responseText)
-        } else {
-            throw Exception("HTTP error code: $responseCode")
-        }
-    }
-
-    private fun parseiTunesResponse(jsonString: String): List<Track> {
-        val list = mutableListOf<Track>()
-        try {
-            val jsonObject = JSONObject(jsonString)
-            val resultsArray = jsonObject.getJSONArray("results")
-            for (i in 0 until resultsArray.length()) {
-                val item = resultsArray.getJSONObject(i)
-                val trackId = item.optLong("trackId", 0).toString()
-                val title = item.optString("trackName", "")
-                val artist = item.optString("artistName", "")
-                val album = item.optString("collectionName", "Single")
-                val previewUrl = item.optString("previewUrl", "")
-                val durationMs = item.optLong("trackTimeMillis", 0)
-                
-                if (trackId != "0" && previewUrl.isNotEmpty()) {
-                    val durationStr = formatMillisToTime(durationMs)
-                    list.add(
-                        Track(
-                            id = "itunes_$trackId",
-                            title = title,
-                            artist = artist,
-                            album = album,
-                            url = previewUrl,
-                            duration = durationStr
-                        )
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return list
-    }
-
-    private fun formatMillisToTime(ms: Long): String {
-        val totalSeconds = ms / 1000
-        val minutes = totalSeconds / 60
-        val seconds = totalSeconds % 60
-        return String.format(java.util.Locale.US, "%d:%02d", minutes, seconds)
     }
 
     // --- SharedPreferences Metadata Caching ---
@@ -329,5 +282,233 @@ class MusicRepository(private val context: Context) {
             e.printStackTrace()
         }
         return list
+    }
+
+    fun triggerCloudSync() {
+        if (_isSyncing.value) return
+        coroutineScope.launch {
+            _isSyncing.value = true
+            kotlinx.coroutines.delay(1500)
+            _isSyncing.value = false
+        }
+    }
+
+    fun loadPlaylists() {
+        val sharedPrefs = context.getSharedPreferences("playlists_prefs", Context.MODE_PRIVATE)
+        val jsonString = sharedPrefs.getString("playlists_data", null) ?: return
+        val list = mutableListOf<Playlist>()
+        try {
+            val jsonArray = JSONArray(jsonString)
+            for (i in 0 until jsonArray.length()) {
+                val item = jsonArray.getJSONObject(i)
+                val trackIdsArray = item.getJSONArray("trackIds")
+                val trackIds = mutableListOf<String>()
+                for (j in 0 until trackIdsArray.length()) {
+                    trackIds.add(trackIdsArray.getString(j))
+                }
+                list.add(Playlist(item.getString("id"), item.getString("name"), trackIds))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        _playlists.value = list
+    }
+
+    fun savePlaylist(playlist: Playlist) {
+        val currentList = _playlists.value.toMutableList()
+        val index = currentList.indexOfFirst { it.id == playlist.id }
+        if (index != -1) {
+            currentList[index] = playlist
+        } else {
+            currentList.add(playlist)
+        }
+        persistPlaylists(currentList)
+        triggerCloudSync()
+    }
+
+    fun deletePlaylist(playlistId: String) {
+        val currentList = _playlists.value.filter { it.id != playlistId }
+        persistPlaylists(currentList)
+        triggerCloudSync()
+    }
+
+    fun addTrackToPlaylist(playlistId: String, trackId: String) {
+        val playlist = _playlists.value.firstOrNull { it.id == playlistId } ?: return
+        if (!playlist.trackIds.contains(trackId)) {
+            val updated = playlist.copy(trackIds = playlist.trackIds + trackId)
+            savePlaylist(updated)
+        }
+    }
+
+    fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
+        val playlist = _playlists.value.firstOrNull { it.id == playlistId } ?: return
+        if (playlist.trackIds.contains(trackId)) {
+            val updated = playlist.copy(trackIds = playlist.trackIds - trackId)
+            savePlaylist(updated)
+        }
+    }
+
+    private fun persistPlaylists(list: List<Playlist>) {
+        val sharedPrefs = context.getSharedPreferences("playlists_prefs", Context.MODE_PRIVATE)
+        val jsonArray = JSONArray()
+        list.forEach { p ->
+            val jobj = JSONObject()
+            jobj.put("id", p.id)
+            jobj.put("name", p.name)
+            val trackIdsArray = JSONArray()
+            p.trackIds.forEach { trackIdsArray.put(it) }
+            jobj.put("trackIds", trackIdsArray)
+            jsonArray.put(jobj)
+        }
+        sharedPrefs.edit().putString("playlists_data", jsonArray.toString()).apply()
+        _playlists.value = list
+    }
+}
+
+interface MusicSearchProvider {
+    val name: String
+    suspend fun search(query: String): List<Track>
+}
+
+class ITunesSearchProvider : MusicSearchProvider {
+    override val name = "iTunes"
+    override suspend fun search(query: String): List<Track> = withContext(Dispatchers.IO) {
+        val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+        val urlString = "https://itunes.apple.com/search?term=$encodedQuery&media=music&entity=song&limit=10"
+        val url = URL(urlString)
+        val connection = url.openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 5000
+        connection.readTimeout = 5000
+        
+        val responseCode = connection.responseCode
+        if (responseCode == HttpURLConnection.HTTP_OK) {
+            val responseText = connection.inputStream.bufferedReader().use { it.readText() }
+            parseiTunesResponse(responseText)
+        } else {
+            emptyList()
+        }
+    }
+
+    private fun parseiTunesResponse(jsonString: String): List<Track> {
+        val list = mutableListOf<Track>()
+        try {
+            val jsonObject = JSONObject(jsonString)
+            val resultsArray = jsonObject.getJSONArray("results")
+            for (i in 0 until resultsArray.length()) {
+                val item = resultsArray.getJSONObject(i)
+                val trackId = item.optLong("trackId", 0).toString()
+                val title = item.optString("trackName", "")
+                val artist = item.optString("artistName", "")
+                val album = item.optString("collectionName", "Single")
+                val previewUrl = item.optString("previewUrl", "")
+                val durationMs = item.optLong("trackTimeMillis", 0)
+                
+                if (trackId != "0" && previewUrl.isNotEmpty()) {
+                    val durationStr = formatMillisToTime(durationMs)
+                    list.add(
+                        Track(
+                            id = "itunes_$trackId",
+                            title = title,
+                            artist = artist,
+                            album = album,
+                            url = previewUrl,
+                            duration = durationStr
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    private fun formatMillisToTime(ms: Long): String {
+        val totalSeconds = ms / 1000
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        return String.format(java.util.Locale.US, "%d:%02d", minutes, seconds)
+    }
+}
+
+class DeezerSearchProvider : MusicSearchProvider {
+    override val name = "Deezer"
+    override suspend fun search(query: String): List<Track> = withContext(Dispatchers.IO) {
+        val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+        val urlString = "https://api.deezer.com/search?q=$encodedQuery&limit=10"
+        val url = URL(urlString)
+        val connection = url.openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 5000
+        connection.readTimeout = 5000
+        
+        val responseCode = connection.responseCode
+        if (responseCode == HttpURLConnection.HTTP_OK) {
+            val responseText = connection.inputStream.bufferedReader().use { it.readText() }
+            parseDeezerResponse(responseText)
+        } else {
+            emptyList()
+        }
+    }
+
+    private fun parseDeezerResponse(jsonString: String): List<Track> {
+        val list = mutableListOf<Track>()
+        try {
+            val jsonObject = JSONObject(jsonString)
+            val dataArray = jsonObject.getJSONArray("data")
+            for (i in 0 until dataArray.length()) {
+                val item = dataArray.getJSONObject(i)
+                val trackId = item.optLong("id", 0).toString()
+                val title = item.optString("title", "")
+                val artistObj = item.getJSONObject("artist")
+                val artist = artistObj.optString("name", "")
+                val albumObj = item.getJSONObject("album")
+                val album = albumObj.optString("title", "Single")
+                val previewUrl = item.optString("preview", "")
+                val durationSec = item.optLong("duration", 0)
+                
+                if (trackId != "0" && previewUrl.isNotEmpty()) {
+                    val minutes = durationSec / 60
+                    val seconds = durationSec % 60
+                    val durationStr = String.format(java.util.Locale.US, "%d:%02d", minutes, seconds)
+                    list.add(
+                        Track(
+                            id = "deezer_$trackId",
+                            title = title,
+                            artist = artist,
+                            album = album,
+                            url = previewUrl,
+                            duration = durationStr
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+}
+
+class SearchAggregator(private val providers: List<MusicSearchProvider>) {
+    suspend fun search(query: String, allowedSource: String = "Todas as Origens"): List<Track> = withContext(Dispatchers.IO) {
+        val filteredProviders = if (allowedSource == "Todas as Origens") {
+            providers
+        } else {
+            providers.filter { it.name.equals(allowedSource, ignoreCase = true) }
+        }
+        val deferreds = filteredProviders.map { provider ->
+            async {
+                try {
+                    provider.search(query)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    emptyList<Track>()
+                }
+            }
+        }
+        val allResults = deferreds.awaitAll().flatten()
+        allResults.distinctBy { it.url }.toList()
     }
 }

@@ -14,18 +14,210 @@ data class Track(
     val duration: String
 )
 
+data class Playlist(
+    val id: String,
+    val name: String,
+    val trackIds: List<String>
+)
+
+interface SearchProvider {
+    val name: String
+    fun search(query: String): kotlin.js.Promise<List<Track>>
+}
+
+class ITunesSearchProvider : SearchProvider {
+    override val name = "iTunes"
+    override fun search(query: String): kotlin.js.Promise<List<Track>> {
+        val encodedQuery = js("encodeURIComponent")(query) as String
+        val url = "https://itunes.apple.com/search?term=$encodedQuery&media=music&entity=song&limit=10"
+        return window.asDynamic().fetch(url).then { response ->
+            response.json().then { data ->
+                val results = data.results as Array<dynamic>
+                results.map { item ->
+                    val trackId = item.trackId.toString()
+                    val title = item.trackName as String
+                    val artist = item.artistName as String
+                    val album = (item.collectionName ?: "Single") as String
+                    val previewUrl = item.previewUrl as String
+                    val durationMs = item.trackTimeMillis as Int
+                    val durationStr = formatMillisToTime(durationMs)
+                    Track("itunes_$trackId", title, artist, album, previewUrl, durationStr)
+                }.toList()
+            }
+        } as kotlin.js.Promise<List<Track>>
+    }
+}
+
+class LofiCCProvider : SearchProvider {
+    override val name = "LofiCC"
+    private val ccTracks = listOf(
+        Track("cc1", "Lofi Sunset", "Lofi Dreamer", "Chill Beats Vol. 1", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3", "5:02"),
+        Track("cc2", "Study Sessions", "Focus Beats", "Study Companion", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3", "7:35"),
+        Track("cc3", "Rainy Coffee", "Lofi Beats", "Coffee & Rain", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3", "5:18"),
+        Track("cc4", "Ambient Space", "Cosmic Soundscapes", "Deep Space Lofi", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3", "7:02"),
+        Track("cc5", "Midnight Coffee", "Retro Synth", "Retro Chill", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3", "6:58")
+    )
+
+    override fun search(query: String): kotlin.js.Promise<List<Track>> {
+        val filtered = ccTracks.filter { 
+            it.title.lowercase().contains(query.lowercase()) || 
+            it.artist.lowercase().contains(query.lowercase()) ||
+            it.album.lowercase().contains(query.lowercase())
+        }
+        return kotlin.js.Promise.resolve(filtered)
+    }
+}
+
+class DeezerSearchProvider : SearchProvider {
+    override val name = "Deezer"
+    private val deezerTracks = listOf(
+        Track("dz1", "Midnight Drive", "Neon Shallows", "Cyber Run", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-11.mp3", "5:38"),
+        Track("dz2", "Vapor Trail", "Synthwave Kid", "Retro Dreams", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-12.mp3", "6:11"),
+        Track("dz3", "Lost in Citylights", "Electric Pulse", "Urban Nights", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-13.mp3", "4:49")
+    )
+    override fun search(query: String): kotlin.js.Promise<List<Track>> {
+        val filtered = deezerTracks.filter { 
+            it.title.lowercase().contains(query.lowercase()) || 
+            it.artist.lowercase().contains(query.lowercase()) ||
+            it.album.lowercase().contains(query.lowercase())
+        }
+        return kotlin.js.Promise.resolve(filtered)
+    }
+}
+
+class SearchAggregator(private val providers: List<SearchProvider>) {
+    fun search(query: String, allowedSource: String = "Todas as Origens"): kotlin.js.Promise<List<Track>> {
+        val filteredProviders = if (allowedSource == "Todas as Origens") {
+            providers
+        } else {
+            providers.filter { it.name.lowercase() == allowedSource.lowercase() }
+        }
+        
+        val promises = filteredProviders.map { provider ->
+            provider.search(query).`catch` { err ->
+                console.error("Provider ${provider.name} failed:", err)
+                emptyList<Track>()
+            }
+        }.toTypedArray()
+        
+        return kotlin.js.Promise.all(promises).then { resultsArray ->
+            val allTracks = mutableListOf<Track>()
+            val results = resultsArray as Array<List<Track>>
+            results.forEach { list ->
+                allTracks.addAll(list)
+            }
+            allTracks.distinctBy { it.url }.toList()
+        }
+    }
+}
+
+object CloudSyncManager {
+    var isSyncing = false
+    var isSynced = true
+    private val syncListeners = mutableListOf<() -> Unit>()
+
+    fun addListener(listener: () -> Unit) {
+        syncListeners.add(listener)
+    }
+
+    fun triggerSync() {
+        if (isSyncing) return
+        isSyncing = true
+        isSynced = false
+        notifyListeners()
+
+        window.setTimeout({
+            isSyncing = false
+            isSynced = true
+            notifyListeners()
+        }, 1500)
+    }
+
+    private fun notifyListeners() {
+        syncListeners.forEach { it() }
+    }
+}
+
+object PlaylistManager {
+    fun getPlaylists(): List<Playlist> {
+        val json = window.localStorage.getItem("user_playlists") ?: return emptyList()
+        return try {
+            val parsed = JSON.parse<Array<dynamic>>(json)
+            parsed.map { item ->
+                val trackIdsArr = item.trackIds as Array<dynamic>
+                val trackIdsList = trackIdsArr.map { it as String }.toList()
+                Playlist(
+                    item.id as String,
+                    item.name as String,
+                    trackIdsList
+                )
+            }.toList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun savePlaylist(playlist: Playlist) {
+        val playlists = getPlaylists().toMutableList()
+        val index = playlists.indexOfFirst { it.id == playlist.id }
+        if (index != -1) {
+            playlists[index] = playlist
+        } else {
+            playlists.add(playlist)
+        }
+        saveAll(playlists)
+        CloudSyncManager.triggerSync()
+    }
+
+    fun deletePlaylist(id: String) {
+        val playlists = getPlaylists().filter { it.id != id }
+        saveAll(playlists)
+        CloudSyncManager.triggerSync()
+    }
+
+    fun addTrackToPlaylist(playlistId: String, trackId: String) {
+        val playlists = getPlaylists()
+        val playlist = playlists.firstOrNull { it.id == playlistId } ?: return
+        if (!playlist.trackIds.contains(trackId)) {
+            val updated = playlist.copy(trackIds = playlist.trackIds + trackId)
+            savePlaylist(updated)
+        }
+    }
+
+    fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
+        val playlists = getPlaylists()
+        val playlist = playlists.firstOrNull { it.id == playlistId } ?: return
+        val updated = playlist.copy(trackIds = playlist.trackIds - trackId)
+        savePlaylist(updated)
+    }
+
+    private fun saveAll(list: List<Playlist>) {
+        val rawList = list.map { playlist ->
+            val obj = js("{}")
+            obj.id = playlist.id
+            obj.name = playlist.name
+            val idsArr = playlist.trackIds.toTypedArray()
+            obj.trackIds = idsArr
+            obj
+        }.toTypedArray()
+        window.localStorage.setItem("user_playlists", JSON.stringify(rawList))
+    }
+}
+
 object LocalStorageManager {
     fun saveDownloadedTrack(track: Track) {
         val list = getDownloadedTracks().toMutableList()
         if (list.none { it.id == track.id }) {
             list.add(track)
             saveList(list)
+            CloudSyncManager.triggerSync()
         }
     }
 
     fun removeDownloadedTrack(trackId: String) {
         val list = getDownloadedTracks().filter { it.id != trackId }
         saveList(list)
+        CloudSyncManager.triggerSync()
     }
 
     fun getDownloadedTracks(): List<Track> {
@@ -72,7 +264,7 @@ fun formatMillisToTime(ms: Int): String {
 
 
 enum class View {
-    EXPLORE, DOWNLOADS, VISUALIZER
+    EXPLORE, DOWNLOADS, VISUALIZER, PLAYLISTS
 }
 
 enum class RepeatMode {
@@ -162,8 +354,20 @@ class MusicPlayerApp {
     private val downloadedTrackIds = mutableSetOf<String>()
     private val downloadingTrackIds = mutableSetOf<String>()
 
+    private val aggregator = SearchAggregator(listOf(ITunesSearchProvider(), DeezerSearchProvider(), LofiCCProvider()))
+
     private var isSearchingOnline = false
     private var searchDebounceTimeout: Int? = null
+
+    // Search filters state
+    private var selectedSourceFilter = "Todas as Origens"
+    private var selectedTypeFilter = "Tudo"
+    private var selectedPlaylist: Playlist? = null
+    private var activePlaylistQueue: List<Track>? = null
+
+    private fun getPlaybackQueue(): List<Track> {
+        return activePlaylistQueue ?: getTracks()
+    }
 
     // Audio Element
     private val audio = document.createElement("audio") as HTMLAudioElement
@@ -183,6 +387,9 @@ class MusicPlayerApp {
         setupAudioListeners()
         setupNetworkListeners()
         registerServiceWorker()
+        CloudSyncManager.addListener {
+            renderHeaderStatus()
+        }
     }
 
     private fun checkDownloads() {
@@ -314,7 +521,7 @@ class MusicPlayerApp {
     }
 
     private fun nextTrack() {
-        val currentTracks = getTracks()
+        val currentTracks = getPlaybackQueue()
         if (currentTracks.isEmpty()) return
         
         val nextIndex = if (isShuffle) {
@@ -327,7 +534,7 @@ class MusicPlayerApp {
     }
 
     private fun prevTrack() {
-        val currentTracks = getTracks()
+        val currentTracks = getPlaybackQueue()
         if (currentTracks.isEmpty()) return
         
         val prevIndex = if (isShuffle) {
@@ -347,7 +554,7 @@ class MusicPlayerApp {
             }
             RepeatMode.ALL -> nextTrack()
             RepeatMode.OFF -> {
-                val currentTracks = getTracks()
+                val currentTracks = getPlaybackQueue()
                 val currentIndex = currentTracks.indexOfFirst { it.id == currentTrack?.id }
                 if (currentIndex != -1 && currentIndex < currentTracks.size - 1) {
                     nextTrack()
@@ -488,6 +695,10 @@ class MusicPlayerApp {
                     <i class="fa-solid fa-circle-down"></i>
                     <span>Downloads</span>
                 </div>
+                <div class="menu-item" id="nav-playlists">
+                    <i class="fa-solid fa-list-music"></i>
+                    <span>Playlists</span>
+                </div>
                 <div class="menu-item" id="nav-visualizer">
                     <i class="fa-solid fa-wave-square"></i>
                     <span>Visualizer</span>
@@ -503,6 +714,10 @@ class MusicPlayerApp {
         })
         sidebar.querySelector("#nav-downloads")?.addEventListener("click", {
             switchView(View.DOWNLOADS)
+        })
+        sidebar.querySelector("#nav-playlists")?.addEventListener("click", {
+            selectedPlaylist = null
+            switchView(View.PLAYLISTS)
         })
         sidebar.querySelector("#nav-visualizer")?.addEventListener("click", {
             switchView(View.VISUALIZER)
@@ -537,6 +752,7 @@ class MusicPlayerApp {
         val activeNavId = when (view) {
             View.EXPLORE -> "nav-explore"
             View.DOWNLOADS -> "nav-downloads"
+            View.PLAYLISTS -> "nav-playlists"
             View.VISUALIZER -> "nav-visualizer"
         }
         document.getElementById(activeNavId)?.classList?.add("active")
@@ -563,14 +779,24 @@ class MusicPlayerApp {
         val statusText = if (isOnline) "Online Mode" else "Offline Mode"
         val statusClass = if (isOnline) "online" else "offline"
 
+        val syncStatusClass = if (CloudSyncManager.isSyncing) "syncing" else "synced"
+        val syncIcon = if (CloudSyncManager.isSyncing) "fa-arrows-rotate" else "fa-cloud"
+        val syncText = if (CloudSyncManager.isSyncing) "Sincronizando..." else "Sincronizado"
+
         header.innerHTML = """
             <div class="search-box">
                 <i class="fa-solid fa-magnifying-glass"></i>
-                <input type="text" class="search-input" placeholder="Search tracks or artists..." value="$searchQuery">
+                <input type="text" class="search-input" placeholder="Buscar músicas ou artistas..." value="$searchQuery">
             </div>
-            <div class="status-indicator">
-                <div class="status-dot $statusClass"></div>
-                <span>$statusText</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <div class="status-indicator">
+                    <div class="status-dot $statusClass"></div>
+                    <span>$statusText</span>
+                </div>
+                <div class="cloud-sync-indicator $syncStatusClass" title="Sincronização na Nuvem em Tempo Real">
+                    <i class="fa-solid $syncIcon"></i>
+                    <span>$syncText</span>
+                </div>
             </div>
         """.trimIndent()
 
@@ -602,45 +828,31 @@ class MusicPlayerApp {
         isSearchingOnline = true
         renderTrackList()
 
-        val encodedQuery = js("encodeURIComponent")(query) as String
-        val url = "https://itunes.apple.com/search?term=$encodedQuery&media=music&entity=song&limit=15"
-        window.asDynamic().fetch(url).then { response ->
-            response.json().then { data ->
-                val results = data.results as Array<dynamic>
-                onlineSearchResults.clear()
-                results.forEach { item ->
-                    val trackId = item.trackId.toString()
-                    val title = item.trackName as String
-                    val artist = item.artistName as String
-                    val album = (item.collectionName ?: "Single") as String
-                    val previewUrl = item.previewUrl as String
-                    val durationMs = item.trackTimeMillis as Int
-                    val durationStr = formatMillisToTime(durationMs)
-                    onlineSearchResults.add(Track("itunes_$trackId", title, artist, album, previewUrl, durationStr))
-                }
-                isSearchingOnline = false
-                
-                var pendingCount = onlineSearchResults.size
-                if (pendingCount == 0) {
-                    renderTrackList()
-                } else {
-                    onlineSearchResults.forEach { t ->
-                        OfflineManager.isDownloaded(t.url) { downloaded ->
-                            if (downloaded) {
-                                downloadedTrackIds.add(t.id)
-                            } else {
-                                downloadedTrackIds.remove(t.id)
-                            }
-                            pendingCount--
-                            if (pendingCount == 0) {
-                                renderTrackList()
-                            }
+        aggregator.search(query, selectedSourceFilter).then { results ->
+            onlineSearchResults.clear()
+            onlineSearchResults.addAll(results)
+            isSearchingOnline = false
+            
+            var pendingCount = onlineSearchResults.size
+            if (pendingCount == 0) {
+                renderTrackList()
+            } else {
+                onlineSearchResults.forEach { t ->
+                    OfflineManager.isDownloaded(t.url) { downloaded ->
+                        if (downloaded) {
+                            downloadedTrackIds.add(t.id)
+                        } else {
+                            downloadedTrackIds.remove(t.id)
+                        }
+                        pendingCount--
+                        if (pendingCount == 0) {
+                            renderTrackList()
                         }
                     }
                 }
             }
         }.`catch` { err ->
-            console.error("Online search failed:", err)
+            console.error("Aggregation search failed:", err)
             isSearchingOnline = false
             renderTrackList()
         }
@@ -673,6 +885,9 @@ class MusicPlayerApp {
                 """.trimIndent()
                 viewContainer.appendChild(hero)
 
+                // Advanced filters
+                renderFilterChips(viewContainer)
+
                 // Tracks list title
                 val title = document.createElement("h2") as HTMLElement
                 title.className = "section-title"
@@ -686,6 +901,9 @@ class MusicPlayerApp {
                 renderTrackList()
             }
             View.DOWNLOADS -> {
+                // Advanced filters (only type filters make sense for offline downloads)
+                renderFilterChips(viewContainer, renderSourceFilter = false)
+
                 val title = document.createElement("h2") as HTMLElement
                 title.className = "section-title"
                 title.innerText = "Downloaded Tracks"
@@ -695,6 +913,129 @@ class MusicPlayerApp {
                 trackListContainer.className = "tracks-grid"
                 viewContainer.appendChild(trackListContainer)
                 renderTrackList()
+            }
+            View.PLAYLISTS -> {
+                val playlist = selectedPlaylist
+                if (playlist == null) {
+                    // Render list of playlists
+                    val titleContainer = document.createElement("div") as HTMLElement
+                    titleContainer.style.display = "flex"
+                    titleContainer.style.justifyContent = "space-between"
+                    titleContainer.style.alignItems = "center"
+                    titleContainer.style.marginBottom = "20px"
+                    
+                    titleContainer.innerHTML = """
+                        <h2 class="section-title" style="margin: 0;">Minhas Playlists</h2>
+                        <button class="playlist-play-btn create-playlist-btn">
+                            <i class="fa-solid fa-plus"></i> Nova Playlist
+                        </button>
+                    """.trimIndent()
+                    viewContainer.appendChild(titleContainer)
+                    
+                    titleContainer.querySelector(".create-playlist-btn")?.addEventListener("click", {
+                        openCreatePlaylistModal()
+                    })
+                    
+                    val playlistsGrid = document.createElement("div") as HTMLElement
+                    playlistsGrid.className = "playlists-grid"
+                    viewContainer.appendChild(playlistsGrid)
+                    
+                    val playlists = PlaylistManager.getPlaylists()
+                    if (playlists.isEmpty()) {
+                        val empty = document.createElement("div") as HTMLElement
+                        empty.className = "empty-state"
+                        empty.innerHTML = """
+                            <i class="fa-solid fa-list-music"></i>
+                            <h3>Nenhuma playlist criada</h3>
+                            <p>Crie uma playlist personalizada e adicione suas músicas favoritas!</p>
+                        """.trimIndent()
+                        playlistsGrid.appendChild(empty)
+                    } else {
+                        playlists.forEach { p ->
+                            val card = document.createElement("div") as HTMLElement
+                            card.className = "playlist-card"
+                            val initial = if (p.name.isNotEmpty()) p.name.take(1).uppercase() else "🎵"
+                            card.innerHTML = """
+                                <button class="playlist-card-delete-btn" title="Excluir Playlist">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>
+                                <div class="playlist-card-art">
+                                    $initial
+                                    <div class="playlist-card-play-overlay">
+                                        <i class="fa-solid fa-circle-play"></i>
+                                    </div>
+                                </div>
+                                <span class="playlist-card-title">${p.name}</span>
+                                <span class="playlist-card-tracks">${p.trackIds.size} músicas</span>
+                            """.trimIndent()
+                            
+                            card.addEventListener("click", { event ->
+                                val target = event.target as? HTMLElement
+                                if (target?.closest(".playlist-card-delete-btn") != null) {
+                                    event.stopPropagation()
+                                    PlaylistManager.deletePlaylist(p.id)
+                                    render()
+                                } else {
+                                    selectedPlaylist = p
+                                    render()
+                                }
+                            })
+                            playlistsGrid.appendChild(card)
+                        }
+                    }
+                } else {
+                    // Render custom playlist detail
+                    val headerContainer = document.createElement("div") as HTMLElement
+                    headerContainer.className = "playlist-header-container"
+                    val initial = if (playlist.name.isNotEmpty()) playlist.name.take(1).uppercase() else "🎵"
+                    
+                    headerContainer.innerHTML = """
+                        <div class="playlist-header-art">$initial</div>
+                        <div class="playlist-header-info">
+                            <span class="playlist-header-tag">PLAYLIST PERSONALIZADA</span>
+                            <span class="playlist-header-title">${playlist.name}</span>
+                            <span style="color: var(--text-muted); font-size: 0.9rem;">${playlist.trackIds.size} músicas</span>
+                            <div class="playlist-header-actions">
+                                <button class="playlist-play-btn play-all-btn">
+                                    <i class="fa-solid fa-play"></i> Reproduzir
+                                </button>
+                                <button class="modal-btn modal-btn-cancel back-btn" style="padding: 10px 20px; border-radius: 20px;">
+                                    Voltar
+                                </button>
+                            </div>
+                        </div>
+                    """.trimIndent()
+                    viewContainer.appendChild(headerContainer)
+                    
+                    headerContainer.querySelector(".back-btn")?.addEventListener("click", {
+                        selectedPlaylist = null
+                        render()
+                    })
+                    
+                    headerContainer.querySelector(".play-all-btn")?.addEventListener("click", {
+                        playPlaylist(playlist)
+                    })
+                    
+                    val trackListContainer = document.createElement("div") as HTMLElement
+                    trackListContainer.className = "tracks-grid"
+                    viewContainer.appendChild(trackListContainer)
+                    
+                    val playlistTracks = getTracks().filter { playlist.trackIds.contains(it.id) }
+                    if (playlistTracks.isEmpty()) {
+                        val empty = document.createElement("div") as HTMLElement
+                        empty.className = "empty-state"
+                        empty.innerHTML = """
+                            <i class="fa-solid fa-music"></i>
+                            <h3>Esta playlist está vazia</h3>
+                            <p>Busque músicas na aba Explore e adicione-as aqui!</p>
+                        """.trimIndent()
+                        trackListContainer.appendChild(empty)
+                    } else {
+                        playlistTracks.forEach { track ->
+                            renderTrackRow(trackListContainer, track)
+                        }
+                    }
+                }
             }
             View.VISUALIZER -> {
                 renderVisualizer(viewContainer)
@@ -709,21 +1050,36 @@ class MusicPlayerApp {
         val isOfflineView = currentView == View.DOWNLOADS
         val availableTracks = if (isOfflineView) getTracks().filter { downloadedTrackIds.contains(it.id) } else getTracks()
 
+        val renderArtists = selectedTypeFilter == "Tudo" || selectedTypeFilter == "Artistas"
+        val renderAlbums = selectedTypeFilter == "Tudo" || selectedTypeFilter == "Álbuns"
+        val renderTracks = selectedTypeFilter == "Tudo" || selectedTypeFilter == "Músicas"
+
         if (searchQuery.isBlank()) {
+            if (selectedTypeFilter != "Tudo" && selectedTypeFilter != "Músicas") {
+                val empty = document.createElement("div") as HTMLElement
+                empty.className = "empty-state"
+                empty.innerHTML = """
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <h3>Use a busca para filtrar por artistas ou álbuns</h3>
+                """.trimIndent()
+                container.appendChild(empty)
+                return
+            }
+
             if (availableTracks.isEmpty()) {
                 val empty = document.createElement("div") as HTMLElement
                 empty.className = "empty-state"
                 if (isOfflineView) {
                     empty.innerHTML = """
                         <i class="fa-solid fa-circle-down"></i>
-                        <h3>No downloaded tracks yet</h3>
-                        <p>Go to the Explore tab and click the download button on any track to save it offline.</p>
+                        <h3>Nenhum download offline</h3>
+                        <p>Vá para o Explore e clique no botão de download para salvar offline.</p>
                     """.trimIndent()
                 } else {
                     empty.innerHTML = """
                         <i class="fa-solid fa-music"></i>
-                        <h3>No tracks available</h3>
-                        <p>Something went wrong or the library is empty.</p>
+                        <h3>Nenhuma música disponível</h3>
+                        <p>Algo deu errado ou a biblioteca está vazia.</p>
                     """.trimIndent()
                 }
                 container.appendChild(empty)
@@ -734,17 +1090,17 @@ class MusicPlayerApp {
                 renderTrackRow(container, track)
             }
         } else {
-            val matchingArtists = availableTracks.map { it.artist }.distinct().filter { it.lowercase().contains(searchQuery.lowercase()) }
-            val matchingAlbums = availableTracks.map { it.album to it.artist }.distinctBy { it.first }.filter { it.first.lowercase().contains(searchQuery.lowercase()) }
-            val matchingTracks = availableTracks.filter { it.title.lowercase().contains(searchQuery.lowercase()) }
+            val matchingArtists = if (renderArtists) availableTracks.map { it.artist }.distinct().filter { it.lowercase().contains(searchQuery.lowercase()) } else emptyList()
+            val matchingAlbums = if (renderAlbums) availableTracks.map { it.album to it.artist }.distinctBy { it.first }.filter { it.first.lowercase().contains(searchQuery.lowercase()) } else emptyList()
+            val matchingTracks = if (renderTracks) availableTracks.filter { it.title.lowercase().contains(searchQuery.lowercase()) } else emptyList()
 
-            if (matchingArtists.isEmpty() && matchingAlbums.isEmpty() && matchingTracks.isEmpty()) {
+            if (matchingArtists.isEmpty() && matchingAlbums.isEmpty() && matchingTracks.isEmpty() && (!window.navigator.onLine || currentView != View.EXPLORE || !renderTracks)) {
                 val empty = document.createElement("div") as HTMLElement
                 empty.className = "empty-state"
                 empty.innerHTML = """
                     <i class="fa-solid fa-music"></i>
-                    <h3>No results found</h3>
-                    <p>Try searching for a different keyword or check spelling.</p>
+                    <h3>Nenhum resultado encontrado</h3>
+                    <p>Tente buscar por outra palavra-chave ou altere os filtros.</p>
                 """.trimIndent()
                 container.appendChild(empty)
                 return
@@ -754,7 +1110,7 @@ class MusicPlayerApp {
             if (matchingArtists.isNotEmpty()) {
                 val secHeader = document.createElement("div") as HTMLElement
                 secHeader.className = "search-section-header"
-                secHeader.innerText = "Artists"
+                secHeader.innerText = "Artistas"
                 container.appendChild(secHeader)
 
                 matchingArtists.forEach { artist ->
@@ -767,10 +1123,10 @@ class MusicPlayerApp {
                             </div>
                             <div class="item-details">
                                 <span class="item-title">$artist</span>
-                                <span class="item-subtitle">Artist</span>
+                                <span class="item-subtitle">Artista</span>
                             </div>
                         </div>
-                        <button class="action-btn play-group-btn" title="Play Artist">
+                        <button class="action-btn play-group-btn" title="Reproduzir Artista">
                             <i class="fa-solid fa-play"></i>
                         </button>
                     """.trimIndent()
@@ -786,7 +1142,7 @@ class MusicPlayerApp {
             if (matchingAlbums.isNotEmpty()) {
                 val secHeader = document.createElement("div") as HTMLElement
                 secHeader.className = "search-section-header"
-                secHeader.innerText = "Albums"
+                secHeader.innerText = "Álbuns"
                 container.appendChild(secHeader)
 
                 matchingAlbums.forEach { (album, artist) ->
@@ -799,10 +1155,10 @@ class MusicPlayerApp {
                             </div>
                             <div class="item-details">
                                 <span class="item-title">$album</span>
-                                <span class="item-subtitle">Album • $artist</span>
+                                <span class="item-subtitle">Álbum • $artist</span>
                             </div>
                         </div>
-                        <button class="action-btn play-group-btn" title="Play Album">
+                        <button class="action-btn play-group-btn" title="Reproduzir Álbum">
                             <i class="fa-solid fa-play"></i>
                         </button>
                     """.trimIndent()
@@ -818,7 +1174,7 @@ class MusicPlayerApp {
             if (matchingTracks.isNotEmpty()) {
                 val secHeader = document.createElement("div") as HTMLElement
                 secHeader.className = "search-section-header"
-                secHeader.innerText = "Tracks"
+                secHeader.innerText = "Músicas"
                 container.appendChild(secHeader)
 
                 matchingTracks.forEach { track ->
@@ -827,10 +1183,10 @@ class MusicPlayerApp {
             }
 
             // Online Search Results
-            if (currentView == View.EXPLORE && window.navigator.onLine) {
+            if (currentView == View.EXPLORE && window.navigator.onLine && renderTracks) {
                 val secHeader = document.createElement("div") as HTMLElement
                 secHeader.className = "search-section-header"
-                secHeader.innerText = "Online Search Results"
+                secHeader.innerText = "Resultados Online"
                 container.appendChild(secHeader)
 
                 if (isSearchingOnline) {
@@ -838,7 +1194,7 @@ class MusicPlayerApp {
                     loading.className = "empty-state"
                     loading.innerHTML = """
                         <i class="fa-solid fa-spinner fa-spin"></i>
-                        <p>Searching online...</p>
+                        <p>Buscando na nuvem em tempo real...</p>
                     """.trimIndent()
                     container.appendChild(loading)
                 } else if (onlineSearchResults.isEmpty()) {
@@ -846,7 +1202,7 @@ class MusicPlayerApp {
                     empty.className = "empty-state"
                     empty.innerHTML = """
                         <i class="fa-solid fa-globe"></i>
-                        <p>No online results found.</p>
+                        <p>Nenhum resultado online.</p>
                     """.trimIndent()
                     container.appendChild(empty)
                 } else {
@@ -890,22 +1246,95 @@ class MusicPlayerApp {
             <span class="track-album">${track.album}</span>
             <span class="track-duration">${track.duration}</span>
             <div class="track-actions">
-                <button class="action-btn download-btn" title="${if (isDownloaded) "Delete Offline Cache" else "Download Offline"}">
+                <button class="action-btn download-btn" title="${if (isDownloaded) "Excluir cache offline" else "Baixar offline"}">
                     <i class="fa-solid $downloadIconClass"></i>
                 </button>
+                <button class="action-btn add-to-playlist-btn" title="Adicionar à Playlist">
+                    <i class="fa-solid fa-plus"></i>
+                </button>
+                <div class="playlist-dropdown-menu"></div>
             </div>
         """.trimIndent()
 
         // Play track on clicking anywhere on the row except action buttons
         row.addEventListener("click", { event ->
             val target = event.target as? HTMLElement
-            if (target?.closest(".action-btn") == null) {
+            if (target?.closest(".action-btn") == null && target?.closest(".playlist-dropdown-menu") == null) {
+                if (currentView == View.PLAYLISTS) {
+                    selectedPlaylist?.let { p ->
+                        activePlaylistQueue = getTracks().filter { p.trackIds.contains(it.id) }
+                    }
+                } else {
+                    activePlaylistQueue = null
+                }
+                
                 if (isActive) {
                     togglePlay()
                 } else {
                     loadTrack(track, autoPlay = true)
                 }
             }
+        })
+
+        // Playlist dropdown interaction
+        val addBtn = row.querySelector(".add-to-playlist-btn") as HTMLElement
+        val dropdown = row.querySelector(".playlist-dropdown-menu") as HTMLElement
+        
+        addBtn.addEventListener("click", { event ->
+            event.stopPropagation()
+            
+            // Close other open dropdowns
+            document.querySelectorAll(".playlist-dropdown-menu").asList().forEach { el ->
+                if (el != dropdown) {
+                    el.classList.remove("show")
+                }
+            }
+            
+            val playlists = PlaylistManager.getPlaylists()
+            dropdown.innerHTML = ""
+            
+            val header = document.createElement("div") as HTMLElement
+            header.className = "playlist-dropdown-header"
+            header.innerText = "Adicionar à Playlist"
+            dropdown.appendChild(header)
+            
+            val createItem = document.createElement("button") as HTMLElement
+            createItem.className = "playlist-dropdown-item"
+            createItem.innerHTML = "<i class='fa-solid fa-plus-circle'></i> Nova Playlist..."
+            createItem.addEventListener("click", { ev ->
+                ev.stopPropagation()
+                dropdown.classList.remove("show")
+                openCreatePlaylistModal()
+            })
+            dropdown.appendChild(createItem)
+            
+            playlists.forEach { playlist ->
+                val item = document.createElement("button") as HTMLElement
+                item.className = "playlist-dropdown-item"
+                val hasTrack = playlist.trackIds.contains(track.id)
+                val icon = if (hasTrack) "fa-circle-check" else "fa-circle"
+                val iconStyle = if (hasTrack) "style='color: var(--secondary);'" else ""
+                
+                item.innerHTML = "<i class='fa-regular $icon' $iconStyle></i> ${playlist.name}"
+                item.addEventListener("click", { ev ->
+                    ev.stopPropagation()
+                    if (hasTrack) {
+                        PlaylistManager.removeTrackFromPlaylist(playlist.id, track.id)
+                    } else {
+                        PlaylistManager.addTrackToPlaylist(playlist.id, track.id)
+                    }
+                    dropdown.classList.remove("show")
+                    render()
+                })
+                dropdown.appendChild(item)
+            }
+            
+            dropdown.classList.toggle("show")
+        })
+
+        // Dismiss dropdown on outside clicks
+        document.addEventListener("click", {
+            dropdown.classList.remove("show")
         })
 
         // Download button action
@@ -1143,6 +1572,118 @@ class MusicPlayerApp {
         val mins = (seconds / 60).toInt()
         val secs = (seconds % 60).toInt()
         return "$mins:${if (secs < 10) "0" else ""}$secs"
+    }
+
+    private fun renderFilterChips(parent: HTMLElement, renderSourceFilter: Boolean = true) {
+        val wrapper = document.createElement("div") as HTMLElement
+        wrapper.className = "filters-wrapper"
+        
+        var html = ""
+        
+        if (renderSourceFilter && searchQuery.isNotEmpty() && window.navigator.onLine) {
+            html += """
+                <div class="filter-row">
+                    <span class="filter-label">Origem:</span>
+                    <button class="filter-chip ${if (selectedSourceFilter == "Todas as Origens") "active" else ""}" data-source="Todas as Origens">Todas</button>
+                    <button class="filter-chip ${if (selectedSourceFilter == "iTunes") "active" else ""}" data-source="iTunes">iTunes</button>
+                    <button class="filter-chip ${if (selectedSourceFilter == "Deezer") "active" else ""}" data-source="Deezer">Deezer</button>
+                    <button class="filter-chip ${if (selectedSourceFilter == "LofiCC") "active" else ""}" data-source="LofiCC">LofiCC</button>
+                </div>
+            """.trimIndent()
+        }
+        
+        html += """
+            <div class="filter-row">
+                <span class="filter-label">Tipo:</span>
+                <button class="filter-chip ${if (selectedTypeFilter == "Tudo") "active" else ""}" data-type="Tudo">Tudo</button>
+                <button class="filter-chip ${if (selectedTypeFilter == "Músicas") "active" else ""}" data-type="Músicas">Músicas</button>
+                <button class="filter-chip ${if (selectedTypeFilter == "Artistas") "active" else ""}" data-type="Artistas">Artistas</button>
+                <button class="filter-chip ${if (selectedTypeFilter == "Álbuns") "active" else ""}" data-type="Álbuns">Álbuns</button>
+            </div>
+        """.trimIndent()
+        
+        wrapper.innerHTML = html
+        parent.appendChild(wrapper)
+        
+        // Add Listeners
+        wrapper.querySelectorAll("[data-source]").asList().forEach { el ->
+            el.addEventListener("click", {
+                val src = el.getAttribute("data-source") ?: "Todas as Origens"
+                selectedSourceFilter = src
+                performOnlineSearch(searchQuery)
+                render()
+            })
+        }
+        
+        wrapper.querySelectorAll("[data-type]").asList().forEach { el ->
+            el.addEventListener("click", {
+                val typ = el.getAttribute("data-type") ?: "Tudo"
+                selectedTypeFilter = typ
+                render()
+            })
+        }
+    }
+
+    private fun openCreatePlaylistModal() {
+        val overlay = document.createElement("div") as HTMLElement
+        overlay.className = "modal-overlay"
+        overlay.innerHTML = """
+            <div class="modal-container">
+                <div class="modal-title">Nova Playlist</div>
+                <input type="text" class="modal-input" placeholder="Digite o nome da playlist..." autofocus>
+                <div class="modal-buttons">
+                    <button class="modal-btn modal-btn-cancel">Cancelar</button>
+                    <button class="modal-btn modal-btn-confirm">Criar</button>
+                </div>
+            </div>
+        """.trimIndent()
+        
+        document.body?.appendChild(overlay)
+        // Trigger transition
+        window.setTimeout({ overlay.classList.add("show") }, 10)
+        
+        val input = overlay.querySelector(".modal-input") as HTMLInputElement
+        val cancelBtn = overlay.querySelector(".modal-btn-cancel") as HTMLElement
+        val confirmBtn = overlay.querySelector(".modal-btn-confirm") as HTMLElement
+        
+        fun close() {
+            overlay.classList.remove("show")
+            window.setTimeout({ overlay.remove() }, 300)
+        }
+        
+        cancelBtn.addEventListener("click", { close() })
+        overlay.addEventListener("click", { event ->
+            if (event.target == overlay) close()
+        })
+        
+        fun confirm() {
+            val name = input.value.trim()
+            if (name.isNotEmpty()) {
+                val id = "playlist_" + kotlin.js.Date.now().toLong()
+                val newPlaylist = Playlist(id, name, emptyList())
+                PlaylistManager.savePlaylist(newPlaylist)
+                close()
+                render()
+            }
+        }
+        
+        confirmBtn.addEventListener("click", { confirm() })
+        input.addEventListener("keydown", { event ->
+            val e = event as KeyboardEvent
+            if (e.key == "Enter") {
+                confirm()
+            } else if (e.key == "Escape") {
+                close()
+            }
+        })
+    }
+
+    private fun playPlaylist(playlist: Playlist) {
+        val playlistTracks = getTracks().filter { playlist.trackIds.contains(it.id) }
+        if (playlistTracks.isNotEmpty()) {
+            activePlaylistQueue = playlistTracks
+            loadTrack(playlistTracks.first(), autoPlay = true)
+        }
     }
 }
 

@@ -14,6 +14,63 @@ data class Track(
     val duration: String
 )
 
+object LocalStorageManager {
+    fun saveDownloadedTrack(track: Track) {
+        val list = getDownloadedTracks().toMutableList()
+        if (list.none { it.id == track.id }) {
+            list.add(track)
+            saveList(list)
+        }
+    }
+
+    fun removeDownloadedTrack(trackId: String) {
+        val list = getDownloadedTracks().filter { it.id != trackId }
+        saveList(list)
+    }
+
+    fun getDownloadedTracks(): List<Track> {
+        val json = window.localStorage.getItem("downloaded_tracks_metadata") ?: return emptyList()
+        return try {
+            val parsed = JSON.parse<Array<dynamic>>(json)
+            parsed.map { item ->
+                Track(
+                    item.id as String,
+                    item.title as String,
+                    item.artist as String,
+                    item.album as String,
+                    item.url as String,
+                    item.duration as String
+                )
+            }.toList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun saveList(list: List<Track>) {
+        val rawList = list.map { track ->
+            val obj = js("{}")
+            obj.id = track.id
+            obj.title = track.title
+            obj.artist = track.artist
+            obj.album = track.album
+            obj.url = track.url
+            obj.duration = track.duration
+            obj
+        }.toTypedArray()
+        window.localStorage.setItem("downloaded_tracks_metadata", JSON.stringify(rawList))
+    }
+}
+
+fun formatMillisToTime(ms: Int): String {
+    val totalSeconds = ms / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    val secondsStr = if (seconds < 10) "0$seconds" else "$seconds"
+    return "$minutes:$secondsStr"
+}
+
+
 enum class View {
     EXPLORE, DOWNLOADS, VISUALIZER
 }
@@ -77,13 +134,20 @@ object OfflineManager {
 }
 
 class MusicPlayerApp {
-    private val tracks = listOf(
+    private val defaultTracks = listOf(
         Track("1", "Ambient Waves", "Helix Instrumental", "SoundHelix Vol. 1", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", "6:12"),
         Track("2", "Cybernetic Breeze", "Synth Lounge", "SoundHelix Vol. 2", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3", "7:05"),
         Track("3", "Urban Pulse", "Lofi Beats", "SoundHelix Vol. 3", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3", "5:44"),
         Track("4", "Solar Wind", "Space Odyssey", "SoundHelix Vol. 4", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3", "5:02"),
         Track("5", "Neon Sunset", "Retro Synth", "SoundHelix Vol. 5", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3", "6:03")
     )
+
+    private val downloadedTracks = mutableListOf<Track>()
+    private val onlineSearchResults = mutableListOf<Track>()
+
+    private fun getTracks(): List<Track> {
+        return (defaultTracks + downloadedTracks + onlineSearchResults).distinctBy { it.id }
+    }
 
     private var currentView = View.EXPLORE
     private var currentTrack: Track? = null
@@ -97,6 +161,9 @@ class MusicPlayerApp {
     // Set to keep track of downloaded track IDs
     private val downloadedTrackIds = mutableSetOf<String>()
     private val downloadingTrackIds = mutableSetOf<String>()
+
+    private var isSearchingOnline = false
+    private var searchDebounceTimeout: Int? = null
 
     // Audio Element
     private val audio = document.createElement("audio") as HTMLAudioElement
@@ -119,7 +186,10 @@ class MusicPlayerApp {
     }
 
     private fun checkDownloads() {
-        tracks.forEach { track ->
+        downloadedTracks.clear()
+        downloadedTracks.addAll(LocalStorageManager.getDownloadedTracks())
+
+        getTracks().forEach { track ->
             OfflineManager.isDownloaded(track.url) { downloaded ->
                 if (downloaded) {
                     downloadedTrackIds.add(track.id)
@@ -169,8 +239,8 @@ class MusicPlayerApp {
     // --- Audio Control Methods ---
 
     private fun togglePlay() {
-        if (currentTrack == null && tracks.isNotEmpty()) {
-            loadTrack(tracks[0], autoPlay = true)
+        if (currentTrack == null && getTracks().isNotEmpty()) {
+            loadTrack(getTracks()[0], autoPlay = true)
             return
         }
 
@@ -244,27 +314,29 @@ class MusicPlayerApp {
     }
 
     private fun nextTrack() {
-        if (tracks.isEmpty()) return
+        val currentTracks = getTracks()
+        if (currentTracks.isEmpty()) return
         
         val nextIndex = if (isShuffle) {
-            (0 until tracks.size).random()
+            (0 until currentTracks.size).random()
         } else {
-            val currentIndex = tracks.indexOfFirst { it.id == currentTrack?.id }
-            if (currentIndex == -1 || currentIndex == tracks.size - 1) 0 else currentIndex + 1
+            val currentIndex = currentTracks.indexOfFirst { it.id == currentTrack?.id }
+            if (currentIndex == -1 || currentIndex == currentTracks.size - 1) 0 else currentIndex + 1
         }
-        loadTrack(tracks[nextIndex], autoPlay = true)
+        loadTrack(currentTracks[nextIndex], autoPlay = true)
     }
 
     private fun prevTrack() {
-        if (tracks.isEmpty()) return
+        val currentTracks = getTracks()
+        if (currentTracks.isEmpty()) return
         
         val prevIndex = if (isShuffle) {
-            (0 until tracks.size).random()
+            (0 until currentTracks.size).random()
         } else {
-            val currentIndex = tracks.indexOfFirst { it.id == currentTrack?.id }
-            if (currentIndex == -1 || currentIndex == 0) tracks.size - 1 else currentIndex - 1
+            val currentIndex = currentTracks.indexOfFirst { it.id == currentTrack?.id }
+            if (currentIndex == -1 || currentIndex == 0) currentTracks.size - 1 else currentIndex - 1
         }
-        loadTrack(tracks[prevIndex], autoPlay = true)
+        loadTrack(currentTracks[prevIndex], autoPlay = true)
     }
 
     private fun handleTrackEnded() {
@@ -275,8 +347,9 @@ class MusicPlayerApp {
             }
             RepeatMode.ALL -> nextTrack()
             RepeatMode.OFF -> {
-                val currentIndex = tracks.indexOfFirst { it.id == currentTrack?.id }
-                if (currentIndex != -1 && currentIndex < tracks.size - 1) {
+                val currentTracks = getTracks()
+                val currentIndex = currentTracks.indexOfFirst { it.id == currentTrack?.id }
+                if (currentIndex != -1 && currentIndex < currentTracks.size - 1) {
                     nextTrack()
                 } else {
                     isPlaying = false
@@ -505,8 +578,72 @@ class MusicPlayerApp {
         val searchInput = header.querySelector(".search-input") as HTMLInputElement
         searchInput.addEventListener("input", {
             searchQuery = searchInput.value
-            renderTrackList()
+            
+            searchDebounceTimeout?.let { window.clearTimeout(it) }
+            if (searchQuery.isBlank()) {
+                onlineSearchResults.clear()
+                isSearchingOnline = false
+                renderTrackList()
+            } else {
+                searchDebounceTimeout = window.setTimeout({
+                    performOnlineSearch(searchQuery)
+                }, 300)
+                renderTrackList()
+            }
         })
+    }
+
+    private fun performOnlineSearch(query: String) {
+        if (query.isBlank() || !window.navigator.onLine) {
+            onlineSearchResults.clear()
+            renderTrackList()
+            return
+        }
+        isSearchingOnline = true
+        renderTrackList()
+
+        val encodedQuery = js("encodeURIComponent")(query) as String
+        val url = "https://itunes.apple.com/search?term=$encodedQuery&media=music&entity=song&limit=15"
+        window.asDynamic().fetch(url).then { response ->
+            response.json().then { data ->
+                val results = data.results as Array<dynamic>
+                onlineSearchResults.clear()
+                results.forEach { item ->
+                    val trackId = item.trackId.toString()
+                    val title = item.trackName as String
+                    val artist = item.artistName as String
+                    val album = (item.collectionName ?: "Single") as String
+                    val previewUrl = item.previewUrl as String
+                    val durationMs = item.trackTimeMillis as Int
+                    val durationStr = formatMillisToTime(durationMs)
+                    onlineSearchResults.add(Track("itunes_$trackId", title, artist, album, previewUrl, durationStr))
+                }
+                isSearchingOnline = false
+                
+                var pendingCount = onlineSearchResults.size
+                if (pendingCount == 0) {
+                    renderTrackList()
+                } else {
+                    onlineSearchResults.forEach { t ->
+                        OfflineManager.isDownloaded(t.url) { downloaded ->
+                            if (downloaded) {
+                                downloadedTrackIds.add(t.id)
+                            } else {
+                                downloadedTrackIds.remove(t.id)
+                            }
+                            pendingCount--
+                            if (pendingCount == 0) {
+                                renderTrackList()
+                            }
+                        }
+                    }
+                }
+            }
+        }.`catch` { err ->
+            console.error("Online search failed:", err)
+            isSearchingOnline = false
+            renderTrackList()
+        }
     }
 
     private fun renderMainContent() {
@@ -570,7 +707,7 @@ class MusicPlayerApp {
         container.innerHTML = ""
 
         val isOfflineView = currentView == View.DOWNLOADS
-        val availableTracks = if (isOfflineView) tracks.filter { downloadedTrackIds.contains(it.id) } else tracks
+        val availableTracks = if (isOfflineView) getTracks().filter { downloadedTrackIds.contains(it.id) } else getTracks()
 
         if (searchQuery.isBlank()) {
             if (availableTracks.isEmpty()) {
@@ -688,6 +825,36 @@ class MusicPlayerApp {
                     renderTrackRow(container, track)
                 }
             }
+
+            // Online Search Results
+            if (currentView == View.EXPLORE && window.navigator.onLine) {
+                val secHeader = document.createElement("div") as HTMLElement
+                secHeader.className = "search-section-header"
+                secHeader.innerText = "Online Search Results"
+                container.appendChild(secHeader)
+
+                if (isSearchingOnline) {
+                    val loading = document.createElement("div") as HTMLElement
+                    loading.className = "empty-state"
+                    loading.innerHTML = """
+                        <i class="fa-solid fa-spinner fa-spin"></i>
+                        <p>Searching online...</p>
+                    """.trimIndent()
+                    container.appendChild(loading)
+                } else if (onlineSearchResults.isEmpty()) {
+                    val empty = document.createElement("div") as HTMLElement
+                    empty.className = "empty-state"
+                    empty.innerHTML = """
+                        <i class="fa-solid fa-globe"></i>
+                        <p>No online results found.</p>
+                    """.trimIndent()
+                    container.appendChild(empty)
+                } else {
+                    onlineSearchResults.forEach { track ->
+                        renderTrackRow(container, track)
+                    }
+                }
+            }
         }
     }
 
@@ -750,6 +917,10 @@ class MusicPlayerApp {
                 OfflineManager.deleteTrack(track.url) { success ->
                     if (success) {
                         downloadedTrackIds.remove(track.id)
+                        LocalStorageManager.removeDownloadedTrack(track.id)
+                        // reload downloaded tracks from storage
+                        downloadedTracks.clear()
+                        downloadedTracks.addAll(LocalStorageManager.getDownloadedTracks())
                         renderTrackList()
                     }
                 }
@@ -765,6 +936,10 @@ class MusicPlayerApp {
                         downloadingTrackIds.remove(track.id)
                         if (success) {
                             downloadedTrackIds.add(track.id)
+                            LocalStorageManager.saveDownloadedTrack(track)
+                            // reload downloaded tracks from storage
+                            downloadedTracks.clear()
+                            downloadedTracks.addAll(LocalStorageManager.getDownloadedTracks())
                         }
                         renderTrackList()
                     }
@@ -776,14 +951,14 @@ class MusicPlayerApp {
     }
 
     private fun playArtist(artistName: String, offlineOnly: Boolean) {
-        val artistTracks = tracks.filter { it.artist == artistName && (!offlineOnly || downloadedTrackIds.contains(it.id)) }
+        val artistTracks = getTracks().filter { it.artist == artistName && (!offlineOnly || downloadedTrackIds.contains(it.id)) }
         if (artistTracks.isNotEmpty()) {
             loadTrack(artistTracks.first(), autoPlay = true)
         }
     }
 
     private fun playAlbum(albumName: String, offlineOnly: Boolean) {
-        val albumTracks = tracks.filter { it.album == albumName && (!offlineOnly || downloadedTrackIds.contains(it.id)) }
+        val albumTracks = getTracks().filter { it.album == albumName && (!offlineOnly || downloadedTrackIds.contains(it.id)) }
         if (albumTracks.isNotEmpty()) {
             loadTrack(albumTracks.first(), autoPlay = true)
         }

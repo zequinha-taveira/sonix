@@ -30,12 +30,18 @@ import com.sonix.player.ui.theme.CyanSecondary
 import com.sonix.player.ui.theme.DarkBackground
 import com.sonix.player.ui.theme.PinkTertiary
 import com.sonix.player.ui.theme.VioletPrimary
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExploreScreen(
     tracks: List<Track>,
+    onlineSearchResults: List<Track>,
+    isSearchingOnline: Boolean,
+    onlineSearchError: String?,
     playbackState: PlaybackState,
+    onSearchOnline: (String) -> Unit,
+    onClearOnlineSearch: () -> Unit,
     onTrackClick: (Track) -> Unit,
     onDownloadClick: (Track) -> Unit,
     onDeleteClick: (Track) -> Unit,
@@ -44,6 +50,15 @@ fun ExploreScreen(
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
+
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isNotBlank()) {
+            delay(300)
+            onSearchOnline(searchQuery)
+        } else {
+            onClearOnlineSearch()
+        }
+    }
 
     val matchingArtists = remember(tracks, searchQuery) {
         if (searchQuery.isBlank()) emptyList<String>()
@@ -154,13 +169,13 @@ fun ExploreScreen(
                 }
             }
         } else {
-            if (matchingArtists.isEmpty() && matchingAlbums.isEmpty() && matchingTracks.isEmpty()) {
+            if (matchingArtists.isEmpty() && matchingAlbums.isEmpty() && matchingTracks.isEmpty() && onlineSearchResults.isEmpty() && !isSearchingOnline) {
                 Box(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "Nenhuma música encontrada",
+                        text = if (onlineSearchError != null) "Sem conexão com a internet" else "Nenhuma música encontrada",
                         color = Color.White.copy(alpha = 0.5f),
                         fontSize = 14.sp
                     )
@@ -175,7 +190,7 @@ fun ExploreScreen(
                     if (matchingArtists.isNotEmpty()) {
                         item {
                             Text(
-                                text = "Artistas",
+                                text = "Artistas Locais",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White.copy(alpha = 0.7f),
@@ -191,7 +206,7 @@ fun ExploreScreen(
                     if (matchingAlbums.isNotEmpty()) {
                         item {
                             Text(
-                                text = "Álbuns",
+                                text = "Álbuns Locais",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White.copy(alpha = 0.7f),
@@ -203,11 +218,11 @@ fun ExploreScreen(
                         }
                     }
 
-                    // Tracks Section
+                    // Local Tracks Section
                     if (matchingTracks.isNotEmpty()) {
                         item {
                             Text(
-                                text = "Músicas",
+                                text = "Músicas Locais",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White.copy(alpha = 0.7f),
@@ -215,6 +230,63 @@ fun ExploreScreen(
                             )
                         }
                         items(matchingTracks, key = { it.id }) { track ->
+                            val isCurrent = playbackState.currentTrack?.id == track.id
+                            TrackRow(
+                                track = track,
+                                isPlaying = playbackState.isPlaying,
+                                isCurrentTrack = isCurrent,
+                                onTrackClick = { onTrackClick(track) },
+                                onDownloadClick = { onDownloadClick(track) },
+                                onDeleteClick = { onDeleteClick(track) }
+                            )
+                        }
+                    }
+
+                    // Online Results Section
+                    item {
+                        Text(
+                            text = "Resultados Online",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    }
+
+                    if (isSearchingOnline) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    color = VioletPrimary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                    } else if (onlineSearchError != null) {
+                        item {
+                            Text(
+                                text = "Sem conexão com a internet.",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 14.sp,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
+                    } else if (onlineSearchResults.isEmpty()) {
+                        item {
+                            Text(
+                                text = "Nenhuma música online encontrada.",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 14.sp,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
+                    } else {
+                        items(onlineSearchResults, key = { it.id }) { track ->
                             val isCurrent = playbackState.currentTrack?.id == track.id
                             TrackRow(
                                 track = track,

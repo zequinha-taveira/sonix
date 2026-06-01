@@ -41,11 +41,14 @@ class MainActivity : ComponentActivity() {
             SonixTheme {
                 var currentTab by remember { mutableStateOf("explore") }
                 val tracks by repository.tracks.collectAsState()
+                val onlineSearchResults by repository.onlineSearchResults.collectAsState()
+                val isSearchingOnline by repository.isSearchingOnline.collectAsState()
+                val onlineSearchError by repository.onlineSearchError.collectAsState()
                 val playbackState by playerManager.playbackState.collectAsState()
 
                 // Keep playback manager playlist up to date when tracks list updates (e.g., download complete)
-                LaunchedEffect(tracks) {
-                    playerManager.setPlaylist(tracks)
+                LaunchedEffect(tracks, onlineSearchResults) {
+                    playerManager.setPlaylist((tracks + onlineSearchResults).distinctBy { it.id })
                 }
 
                 Scaffold(
@@ -94,19 +97,26 @@ class MainActivity : ComponentActivity() {
                             "explore" -> {
                                 ExploreScreen(
                                     tracks = tracks,
+                                    onlineSearchResults = onlineSearchResults,
+                                    isSearchingOnline = isSearchingOnline,
+                                    onlineSearchError = onlineSearchError,
                                     playbackState = playbackState,
+                                    onSearchOnline = { query -> repository.searchOnline(query) },
+                                    onClearOnlineSearch = { repository.clearOnlineSearch() },
                                     onTrackClick = { playerManager.play(it) },
                                     onDownloadClick = { repository.downloadTrack(it) },
                                     onDeleteClick = { repository.deleteTrack(it) },
                                     onPlayArtistClick = { artist ->
-                                        val artistTracks = tracks.filter { it.artist == artist }
+                                        val combined = (tracks + onlineSearchResults).distinctBy { it.id }
+                                        val artistTracks = combined.filter { it.artist == artist }
                                         if (artistTracks.isNotEmpty()) {
                                             playerManager.setPlaylist(artistTracks)
                                             playerManager.play(artistTracks.first())
                                         }
                                     },
                                     onPlayAlbumClick = { album ->
-                                        val albumTracks = tracks.filter { it.album == album }
+                                        val combined = (tracks + onlineSearchResults).distinctBy { it.id }
+                                        val albumTracks = combined.filter { it.album == album }
                                         if (albumTracks.isNotEmpty()) {
                                             playerManager.setPlaylist(albumTracks)
                                             playerManager.play(albumTracks.first())

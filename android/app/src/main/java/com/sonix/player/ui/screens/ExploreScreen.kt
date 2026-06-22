@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -335,11 +336,42 @@ fun ExploreScreen(
                             .fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = if (onlineSearchError != null) "Sem conexão com a internet" else "Nenhum resultado encontrado",
-                            color = Color.White.copy(alpha = 0.5f),
-                            fontSize = 14.sp
-                        )
+                        if (onlineSearchError != null) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Sem conexão com a internet.",
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    fontSize = 14.sp
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Button(
+                                    onClick = { onSearchOnline(searchQuery, selectedSourceFilter) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = VioletPrimary),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "Retry",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text("Tentar Novamente", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = "Nenhum resultado encontrado",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 14.sp
+                            )
+                        }
                     }
                 } else {
                     Row(
@@ -444,12 +476,38 @@ fun ExploreScreen(
                                     }
                                 } else if (onlineSearchError != null) {
                                     item {
-                                        Text(
-                                            text = "Sem conexão com a internet.",
-                                            color = Color.White.copy(alpha = 0.5f),
-                                            fontSize = 14.sp,
-                                            modifier = Modifier.padding(vertical = 8.dp)
-                                        )
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 16.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                text = "Sem conexão com a internet.",
+                                                color = Color.White.copy(alpha = 0.5f),
+                                                fontSize = 14.sp
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Button(
+                                                onClick = { onSearchOnline(searchQuery, selectedSourceFilter) },
+                                                colors = ButtonDefaults.buttonColors(containerColor = VioletPrimary),
+                                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                                shape = RoundedCornerShape(12.dp)
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Refresh,
+                                                        contentDescription = "Retry",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                    Text("Tentar Novamente", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
                                     }
                                 } else if (onlineSearchResults.isEmpty()) {
                                     item {
@@ -486,11 +544,42 @@ fun ExploreScreen(
                             .fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = if (onlineSearchError != null) "Sem conexão com a internet" else "Nenhum resultado encontrado",
-                            color = Color.White.copy(alpha = 0.5f),
-                            fontSize = 14.sp
-                        )
+                        if (onlineSearchError != null) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Sem conexão com a internet.",
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    fontSize = 14.sp
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Button(
+                                    onClick = { onSearchOnline(searchQuery, selectedSourceFilter) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = VioletPrimary),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "Retry",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text("Tentar Novamente", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = "Nenhum resultado encontrado",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 14.sp
+                            )
+                        }
                     }
                 } else {
                     LazyColumn(
@@ -583,12 +672,38 @@ fun ExploreScreen(
                                 }
                             } else if (onlineSearchError != null) {
                                 item {
-                                    Text(
-                                        text = "Sem conexão com a internet.",
-                                        color = Color.White.copy(alpha = 0.5f),
-                                        fontSize = 14.sp,
-                                        modifier = Modifier.padding(vertical = 8.dp)
-                                    )
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 16.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = "Sem conexão com a internet.",
+                                            color = Color.White.copy(alpha = 0.5f),
+                                            fontSize = 14.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Button(
+                                            onClick = { onSearchOnline(searchQuery, selectedSourceFilter) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = VioletPrimary),
+                                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Refresh,
+                                                    contentDescription = "Retry",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Text("Tentar Novamente", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
                                 }
                             } else if (onlineSearchResults.isEmpty()) {
                                 item {

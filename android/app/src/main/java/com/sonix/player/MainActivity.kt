@@ -23,6 +23,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.material.icons.filled.CloudOff
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import com.sonix.player.data.MusicRepository
@@ -60,6 +64,23 @@ class MainActivity : ComponentActivity() {
                 val playlists by repository.playlists.collectAsState()
                 val isSyncing by repository.isSyncing.collectAsState()
                 val playbackState by playerManager.playbackState.collectAsState()
+                val isOnline by repository.isOnline.collectAsState()
+
+                val permissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestPermission()
+                ) { _ -> }
+
+                LaunchedEffect(Unit) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                        permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+
+                LaunchedEffect(playbackState.error) {
+                    playbackState.error?.let { errorMsg ->
+                        android.widget.Toast.makeText(applicationContext, errorMsg, android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
 
                 var showPlaylistPickerDialog by rememberSaveable { mutableStateOf(false) }
                 var trackToAddToPlaylistId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -336,114 +357,156 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        Box(
+                        Column(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
                         ) {
-                            // Switch between Screens
-                            when (currentTab) {
-                                "explore" -> {
-                                    ExploreScreen(
-                                        tracks = tracks,
-                                        onlineSearchResults = onlineSearchResults,
-                                        isSearchingOnline = isSearchingOnline,
-                                        onlineSearchError = onlineSearchError,
-                                        isSyncing = isSyncing,
-                                        playbackState = playbackState,
-                                        onSearchOnline = { query, src -> repository.searchOnline(query, src) },
-                                        onClearOnlineSearch = { repository.clearOnlineSearch() },
-                                        onTrackClick = { playerManager.play(it) },
-                                        onDownloadClick = { repository.downloadTrack(it) },
-                                        onDeleteClick = { repository.deleteTrack(it) },
-                                        onPlayArtistClick = { artist ->
-                                            val combined = (tracks + onlineSearchResults).distinctBy { it.id }
-                                            val artistTracks = combined.filter { it.artist == artist }
-                                            if (artistTracks.isNotEmpty()) {
-                                                playerManager.setPlaylist(artistTracks)
-                                                playerManager.play(artistTracks.first())
-                                            }
-                                        },
-                                        onPlayAlbumClick = { album ->
-                                            val combined = (tracks + onlineSearchResults).distinctBy { it.id }
-                                            val albumTracks = combined.filter { it.album == album }
-                                            if (albumTracks.isNotEmpty()) {
-                                                playerManager.setPlaylist(albumTracks)
-                                                playerManager.play(albumTracks.first())
-                                            }
-                                        },
-                                        onAddToPlaylistClick = {
-                                            trackToAddToPlaylistId = it.id
-                                            showPlaylistPickerDialog = true
-                                        }
-                                    )
-                                }
-                                "downloads" -> {
-                                    DownloadsScreen(
-                                        tracks = tracks,
-                                        playbackState = playbackState,
-                                        onTrackClick = { playerManager.play(it) },
-                                        onDeleteClick = { repository.deleteTrack(it) },
-                                        onPlayArtistClick = { artist ->
-                                            val artistTracks = tracks.filter { it.artist == artist && it.isDownloaded }
-                                            if (artistTracks.isNotEmpty()) {
-                                                playerManager.setPlaylist(artistTracks)
-                                                playerManager.play(artistTracks.first())
-                                            }
-                                        },
-                                        onPlayAlbumClick = { album ->
-                                            val albumTracks = tracks.filter { it.album == album && it.isDownloaded }
-                                            if (albumTracks.isNotEmpty()) {
-                                                playerManager.setPlaylist(albumTracks)
-                                                playerManager.play(albumTracks.first())
-                                            }
-                                        }
-                                    )
-                                }
-                                "playlists" -> {
-                                    PlaylistsScreen(
-                                        playlists = playlists,
-                                        tracks = (tracks + onlineSearchResults).distinctBy { it.id },
-                                        playbackState = playbackState,
-                                        onCreatePlaylist = { name ->
-                                            val id = "playlist_${System.currentTimeMillis()}"
-                                            repository.savePlaylist(Playlist(id, name, emptyList()))
-                                        },
-                                        onDeletePlaylist = { id -> repository.deletePlaylist(id) },
-                                        onTrackClick = { playerManager.play(it) },
-                                        onRemoveTrackFromPlaylist = { playlistId, trackId ->
-                                            repository.removeTrackFromPlaylist(playlistId, trackId)
-                                        },
-                                        onPlayPlaylist = { playlist ->
-                                            val playlistTracks = (tracks + onlineSearchResults).distinctBy { it.id }.filter { playlist.trackIds.contains(it.id) }
-                                            if (playlistTracks.isNotEmpty()) {
-                                                playerManager.setPlaylist(playlistTracks)
-                                                playerManager.play(playlistTracks.first())
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-
-                            // Floating Player Bar if a track is loaded
-                            if (playbackState.currentTrack != null) {
+                            if (!isOnline) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .align(Alignment.BottomCenter)
-                                        .padding(bottom = 8.dp)
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                colors = listOf(
+                                                    Color(0xFFE57373).copy(alpha = 0.9f),
+                                                    Color(0xFFEF5350).copy(alpha = 0.9f)
+                                                )
+                                            )
+                                        )
+                                        .padding(vertical = 8.dp, horizontal = 16.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    PlayerBar(
-                                        state = playbackState,
-                                        onPlayPauseClick = { playerManager.togglePlay() },
-                                        onNextClick = { playerManager.next() },
-                                        onPrevClick = { playerManager.prev() },
-                                        onSeek = { playerManager.seekTo(it) },
-                                        onShuffleClick = { playerManager.toggleShuffle() },
-                                        onRepeatClick = { playerManager.toggleRepeat() },
-                                        onVolumeChange = { playerManager.setVolume(it) },
-                                        isLandscape = isTabletOrLandscape
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CloudOff,
+                                            contentDescription = "Offline",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Sem conexão com a internet. Modo Offline ativo.",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                            ) {
+                                // Switch between Screens
+                                when (currentTab) {
+                                    "explore" -> {
+                                        ExploreScreen(
+                                            tracks = tracks,
+                                            onlineSearchResults = onlineSearchResults,
+                                            isSearchingOnline = isSearchingOnline,
+                                            onlineSearchError = onlineSearchError,
+                                            isSyncing = isSyncing,
+                                            playbackState = playbackState,
+                                            onSearchOnline = { query, src -> repository.searchOnline(query, src) },
+                                            onClearOnlineSearch = { repository.clearOnlineSearch() },
+                                            onTrackClick = { playerManager.play(it) },
+                                            onDownloadClick = { repository.downloadTrack(it) },
+                                            onDeleteClick = { repository.deleteTrack(it) },
+                                            onPlayArtistClick = { artist ->
+                                                val combined = (tracks + onlineSearchResults).distinctBy { it.id }
+                                                val artistTracks = combined.filter { it.artist == artist }
+                                                if (artistTracks.isNotEmpty()) {
+                                                    playerManager.setPlaylist(artistTracks)
+                                                    playerManager.play(artistTracks.first())
+                                                }
+                                            },
+                                            onPlayAlbumClick = { album ->
+                                                val combined = (tracks + onlineSearchResults).distinctBy { it.id }
+                                                val albumTracks = combined.filter { it.album == album }
+                                                if (albumTracks.isNotEmpty()) {
+                                                    playerManager.setPlaylist(albumTracks)
+                                                    playerManager.play(albumTracks.first())
+                                                }
+                                            },
+                                            onAddToPlaylistClick = {
+                                                trackToAddToPlaylistId = it.id
+                                                showPlaylistPickerDialog = true
+                                            }
+                                        )
+                                    }
+                                    "downloads" -> {
+                                        DownloadsScreen(
+                                            tracks = tracks,
+                                            playbackState = playbackState,
+                                            onTrackClick = { playerManager.play(it) },
+                                            onDeleteClick = { repository.deleteTrack(it) },
+                                            onPlayArtistClick = { artist ->
+                                                val artistTracks = tracks.filter { it.artist == artist && it.isDownloaded }
+                                                if (artistTracks.isNotEmpty()) {
+                                                    playerManager.setPlaylist(artistTracks)
+                                                    playerManager.play(artistTracks.first())
+                                                }
+                                            },
+                                            onPlayAlbumClick = { album ->
+                                                val albumTracks = tracks.filter { it.album == album && it.isDownloaded }
+                                                if (albumTracks.isNotEmpty()) {
+                                                    playerManager.setPlaylist(albumTracks)
+                                                    playerManager.play(albumTracks.first())
+                                                }
+                                            }
+                                        )
+                                    }
+                                    "playlists" -> {
+                                        PlaylistsScreen(
+                                            playlists = playlists,
+                                            tracks = (tracks + onlineSearchResults).distinctBy { it.id },
+                                            playbackState = playbackState,
+                                            onCreatePlaylist = { name ->
+                                                val id = "playlist_${System.currentTimeMillis()}"
+                                                repository.savePlaylist(Playlist(id, name, emptyList()))
+                                            },
+                                            onDeletePlaylist = { id -> repository.deletePlaylist(id) },
+                                            onTrackClick = { playerManager.play(it) },
+                                            onRemoveTrackFromPlaylist = { playlistId, trackId ->
+                                                repository.removeTrackFromPlaylist(playlistId, trackId)
+                                            },
+                                            onPlayPlaylist = { playlist ->
+                                                val playlistTracks = (tracks + onlineSearchResults).distinctBy { it.id }.filter { playlist.trackIds.contains(it.id) }
+                                                if (playlistTracks.isNotEmpty()) {
+                                                    playerManager.setPlaylist(playlistTracks)
+                                                    playerManager.play(playlistTracks.first())
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+
+                                // Floating Player Bar if a track is loaded
+                                if (playbackState.currentTrack != null) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .align(Alignment.BottomCenter)
+                                            .padding(bottom = 8.dp)
+                                    ) {
+                                        PlayerBar(
+                                            state = playbackState,
+                                            onPlayPauseClick = { playerManager.togglePlay() },
+                                            onNextClick = { playerManager.next() },
+                                            onPrevClick = { playerManager.prev() },
+                                            onSeek = { playerManager.seekTo(it) },
+                                            onShuffleClick = { playerManager.toggleShuffle() },
+                                            onRepeatClick = { playerManager.toggleRepeat() },
+                                            onVolumeChange = { playerManager.setVolume(it) },
+                                            isLandscape = isTabletOrLandscape
+                                        )
+                                    }
                                 }
                             }
                         }

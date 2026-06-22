@@ -26,7 +26,8 @@ data class PlaybackState(
     val durationMs: Long = 0,
     val volume: Float = 1.0f,
     val isShuffle: Boolean = false,
-    val repeatMode: PlaybackRepeatMode = PlaybackRepeatMode.OFF
+    val repeatMode: PlaybackRepeatMode = PlaybackRepeatMode.OFF,
+    val error: String? = null
 )
 
 class AudioPlayerManager(private val context: Context) {
@@ -57,6 +58,18 @@ class AudioPlayerManager(private val context: Context) {
                     handleTrackEnded()
                 }
             }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                val message = if (error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED) {
+                    "Falha na conexão de rede. Verifique sua internet."
+                } else {
+                    "Erro de reprodução: ${error.localizedMessage}"
+                }
+                _playbackState.value = _playbackState.value.copy(
+                    isPlaying = false,
+                    error = message
+                )
+            }
         })
     }
 
@@ -79,7 +92,8 @@ class AudioPlayerManager(private val context: Context) {
         _playbackState.value = _playbackState.value.copy(
             currentTrack = track,
             progressMs = 0,
-            durationMs = 0
+            durationMs = 0,
+            error = null
         )
     }
 
@@ -93,6 +107,7 @@ class AudioPlayerManager(private val context: Context) {
         if (player.isPlaying) {
             player.pause()
         } else {
+            _playbackState.value = _playbackState.value.copy(error = null)
             player.play()
         }
     }

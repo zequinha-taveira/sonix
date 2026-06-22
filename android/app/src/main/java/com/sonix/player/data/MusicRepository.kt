@@ -1,6 +1,12 @@
 package com.sonix.player.data
 
 import android.content.Context
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.os.Build
+import android.widget.Toast
+import androidx.core.app.NotificationCompat
+import com.sonix.player.util.NetworkMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,6 +27,12 @@ import java.net.URL
 class MusicRepository(private val context: Context) {
     private val coroutineScope = CoroutineScope(Dispatchers.IO)
     private val aggregator = SearchAggregator(listOf(ITunesSearchProvider(), DeezerSearchProvider()))
+    
+    private val networkMonitor = NetworkMonitor(context)
+    val isOnline: StateFlow<Boolean> = networkMonitor.isOnline
+
+    private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    private val channelId = "downloads_channel"
 
     private val originalTracks = listOf(
         Track("1", "Ambient Waves", "Helix Instrumental", "SoundHelix Vol. 1", "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", "6:12"),
@@ -51,8 +63,26 @@ class MusicRepository(private val context: Context) {
     private var currentSearchJob: Job? = null
 
     init {
+        createNotificationChannel()
         refreshDownloadStates()
         loadPlaylists()
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId,
+                "Downloads",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Progresso de download de músicas"
+            }
+            try {
+                notificationManager.createNotificationChannel(channel)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     fun refreshDownloadStates() {
@@ -97,6 +127,21 @@ class MusicRepository(private val context: Context) {
             if (it.id == track.id) it.copy(isDownloading = true) else it
         }
 
+        val notificationId = track.id.hashCode()
+        val builder = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle("Baixando ${track.title}")
+            .setContentText("Iniciando download...")
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .setProgress(100, 0, true)
+
+        try {
+            notificationManager.notify(notificationId, builder.build())
+        } catch (e: SecurityException) {
+            e.printStackTrace()
+        }
+
         coroutineScope.launch {
             val file = getLocalFile(track)
             val tmpFile = File(file.parentFile, "${file.name}.tmp")
@@ -114,10 +159,28 @@ class MusicRepository(private val context: Context) {
                     if (urlConnection.responseCode == HttpURLConnection.HTTP_OK) {
                         urlConnection.inputStream.use { input ->
                             FileOutputStream(tmpFile).use { output ->
+                                val contentLength = urlConnection.contentLength
                                 val buffer = ByteArray(4096)
                                 var bytesRead: Int
+                                var totalBytesRead = 0L
+                                var lastProgressUpdate = 0L
                                 while (input.read(buffer).also { bytesRead = it } != -1) {
                                     output.write(buffer, 0, bytesRead)
+                                    totalBytesRead += bytesRead
+                                    if (contentLength > 0) {
+                                        val progress = ((totalBytesRead * 100) / contentLength).toInt()
+                                        val currentTime = System.currentTimeMillis()
+                                        if (currentTime - lastProgressUpdate > 500) {
+                                            builder.setProgress(100, progress, false)
+                                                .setContentText("$progress%")
+                                            try {
+                                                notificationManager.notify(notificationId, builder.build())
+                                            } catch (e: SecurityException) {
+                                                e.printStackTrace()
+                                            }
+                                            lastProgressUpdate = currentTime
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -152,6 +215,12 @@ class MusicRepository(private val context: Context) {
                         it
                     }
                 }
+
+                try {
+                    notificationManager.cancel(notificationId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
                 if (tmpFile.exists()) {
@@ -170,6 +239,23 @@ class MusicRepository(private val context: Context) {
                     } else {
                         it
                     }
+                }
+
+                try {
+                    val errorBuilder = NotificationCompat.Builder(context, channelId)
+                        .setSmallIcon(android.R.drawable.stat_notify_error)
+                        .setContentTitle("Erro ao baixar ${track.title}")
+                        .setContentText("Falha no download da música.")
+                        .setPriority(NotificationCompat.PRIORITY_LOW)
+                        .setOngoing(false)
+                        .setProgress(0, 0, false)
+                    notificationManager.notify(notificationId, errorBuilder.build())
+                } catch (ne: Exception) {
+                    ne.printStackTrace()
+                }
+
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Erro ao baixar ${track.title}. Verifique sua conexão.", Toast.LENGTH_LONG).show()
                 }
             }
         }

@@ -23,6 +23,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
 import com.sonix.player.data.MusicRepository
 import com.sonix.player.data.Playlist
 import com.sonix.player.data.Track
@@ -216,167 +218,237 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(tracks, onlineSearchResults) {
                     playerManager.setPlaylist((tracks + onlineSearchResults).distinctBy { it.id })
                 }
+                val configuration = LocalConfiguration.current
+                val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+                val screenWidthDp = configuration.screenWidthDp
+                val isTabletOrLandscape = isLandscape || screenWidthDp >= 600
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
-                        NavigationBar(
-                            containerColor = DarkSurface.copy(alpha = 0.9f),
-                            contentColor = Color.White
-                        ) {
-                            NavigationBarItem(
-                                selected = currentTab == "explore",
-                                onClick = { currentTab = "explore" },
-                                icon = { Icon(Icons.Default.Explore, contentDescription = "Explore") },
-                                label = { Text("Explorar") },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = VioletPrimary,
-                                    selectedTextColor = VioletPrimary,
-                                    indicatorColor = Color.White.copy(alpha = 0.1f),
-                                    unselectedIconColor = Color.White.copy(alpha = 0.6f),
-                                    unselectedTextColor = Color.White.copy(alpha = 0.6f)
+                        if (!isTabletOrLandscape) {
+                            NavigationBar(
+                                containerColor = DarkSurface.copy(alpha = 0.9f),
+                                contentColor = Color.White
+                            ) {
+                                NavigationBarItem(
+                                    selected = currentTab == "explore",
+                                    onClick = { currentTab = "explore" },
+                                    icon = { Icon(Icons.Default.Explore, contentDescription = "Explore") },
+                                    label = { Text("Explorar") },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = VioletPrimary,
+                                        selectedTextColor = VioletPrimary,
+                                        indicatorColor = Color.White.copy(alpha = 0.1f),
+                                        unselectedIconColor = Color.White.copy(alpha = 0.6f),
+                                        unselectedTextColor = Color.White.copy(alpha = 0.6f)
+                                    )
                                 )
-                            )
-                            NavigationBarItem(
-                                selected = currentTab == "downloads",
-                                onClick = { currentTab = "downloads" },
-                                icon = { Icon(Icons.Default.DownloadDone, contentDescription = "Downloads") },
-                                label = { Text("Downloads") },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = CyanSecondary,
-                                    selectedTextColor = CyanSecondary,
-                                    indicatorColor = Color.White.copy(alpha = 0.1f),
-                                    unselectedIconColor = Color.White.copy(alpha = 0.6f),
-                                    unselectedTextColor = Color.White.copy(alpha = 0.6f)
+                                NavigationBarItem(
+                                    selected = currentTab == "downloads",
+                                    onClick = { currentTab = "downloads" },
+                                    icon = { Icon(Icons.Default.DownloadDone, contentDescription = "Downloads") },
+                                    label = { Text("Downloads") },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = CyanSecondary,
+                                        selectedTextColor = CyanSecondary,
+                                        indicatorColor = Color.White.copy(alpha = 0.1f),
+                                        unselectedIconColor = Color.White.copy(alpha = 0.6f),
+                                        unselectedTextColor = Color.White.copy(alpha = 0.6f)
+                                    )
                                 )
-                            )
-                            NavigationBarItem(
-                                selected = currentTab == "playlists",
-                                onClick = { currentTab = "playlists" },
-                                icon = { Icon(Icons.Default.List, contentDescription = "Playlists") },
-                                label = { Text("Playlists") },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = VioletPrimary,
-                                    selectedTextColor = VioletPrimary,
-                                    indicatorColor = Color.White.copy(alpha = 0.1f),
-                                    unselectedIconColor = Color.White.copy(alpha = 0.6f),
-                                    unselectedTextColor = Color.White.copy(alpha = 0.6f)
+                                NavigationBarItem(
+                                    selected = currentTab == "playlists",
+                                    onClick = { currentTab = "playlists" },
+                                    icon = { Icon(Icons.Default.List, contentDescription = "Playlists") },
+                                    label = { Text("Playlists") },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = VioletPrimary,
+                                        selectedTextColor = VioletPrimary,
+                                        indicatorColor = Color.White.copy(alpha = 0.1f),
+                                        unselectedIconColor = Color.White.copy(alpha = 0.6f),
+                                        unselectedTextColor = Color.White.copy(alpha = 0.6f)
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 ) { innerPadding ->
-                    Box(
+                    Row(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(innerPadding)
                     ) {
-                        // Switch between Screens
-                        when (currentTab) {
-                            "explore" -> {
-                                ExploreScreen(
-                                    tracks = tracks,
-                                    onlineSearchResults = onlineSearchResults,
-                                    isSearchingOnline = isSearchingOnline,
-                                    onlineSearchError = onlineSearchError,
-                                    isSyncing = isSyncing,
-                                    playbackState = playbackState,
-                                    onSearchOnline = { query, src -> repository.searchOnline(query, src) },
-                                    onClearOnlineSearch = { repository.clearOnlineSearch() },
-                                    onTrackClick = { playerManager.play(it) },
-                                    onDownloadClick = { repository.downloadTrack(it) },
-                                    onDeleteClick = { repository.deleteTrack(it) },
-                                    onPlayArtistClick = { artist ->
-                                        val combined = (tracks + onlineSearchResults).distinctBy { it.id }
-                                        val artistTracks = combined.filter { it.artist == artist }
-                                        if (artistTracks.isNotEmpty()) {
-                                            playerManager.setPlaylist(artistTracks)
-                                            playerManager.play(artistTracks.first())
-                                        }
-                                    },
-                                    onPlayAlbumClick = { album ->
-                                        val combined = (tracks + onlineSearchResults).distinctBy { it.id }
-                                        val albumTracks = combined.filter { it.album == album }
-                                        if (albumTracks.isNotEmpty()) {
-                                            playerManager.setPlaylist(albumTracks)
-                                            playerManager.play(albumTracks.first())
-                                        }
-                                    },
-                                    onAddToPlaylistClick = {
-                                        trackToAddToPlaylistId = it.id
-                                        showPlaylistPickerDialog = true
-                                    }
+                        if (isTabletOrLandscape) {
+                            NavigationRail(
+                                containerColor = DarkSurface.copy(alpha = 0.9f),
+                                contentColor = Color.White,
+                                modifier = Modifier.fillMaxHeight()
+                            ) {
+                                Spacer(modifier = Modifier.height(24.dp))
+                                Text(
+                                    text = "Sonix",
+                                    color = VioletPrimary,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    fontSize = 18.sp,
+                                    modifier = Modifier.padding(vertical = 12.dp)
                                 )
-                            }
-                            "downloads" -> {
-                                DownloadsScreen(
-                                    tracks = tracks,
-                                    playbackState = playbackState,
-                                    onTrackClick = { playerManager.play(it) },
-                                    onDeleteClick = { repository.deleteTrack(it) },
-                                    onPlayArtistClick = { artist ->
-                                        val artistTracks = tracks.filter { it.artist == artist && it.isDownloaded }
-                                        if (artistTracks.isNotEmpty()) {
-                                            playerManager.setPlaylist(artistTracks)
-                                            playerManager.play(artistTracks.first())
-                                        }
-                                    },
-                                    onPlayAlbumClick = { album ->
-                                        val albumTracks = tracks.filter { it.album == album && it.isDownloaded }
-                                        if (albumTracks.isNotEmpty()) {
-                                            playerManager.setPlaylist(albumTracks)
-                                            playerManager.play(albumTracks.first())
-                                        }
-                                    }
+                                Spacer(modifier = Modifier.height(16.dp))
+                                NavigationRailItem(
+                                    selected = currentTab == "explore",
+                                    onClick = { currentTab = "explore" },
+                                    icon = { Icon(Icons.Default.Explore, contentDescription = "Explore") },
+                                    label = { Text("Explorar") },
+                                    colors = NavigationRailItemDefaults.colors(
+                                        selectedIconColor = VioletPrimary,
+                                        selectedTextColor = VioletPrimary,
+                                        indicatorColor = Color.White.copy(alpha = 0.1f),
+                                        unselectedIconColor = Color.White.copy(alpha = 0.6f),
+                                        unselectedTextColor = Color.White.copy(alpha = 0.6f)
+                                    )
                                 )
-                            }
-                            "playlists" -> {
-                                PlaylistsScreen(
-                                    playlists = playlists,
-                                    tracks = (tracks + onlineSearchResults).distinctBy { it.id },
-                                    playbackState = playbackState,
-                                    onCreatePlaylist = { name ->
-                                        val id = "playlist_${System.currentTimeMillis()}"
-                                        repository.savePlaylist(Playlist(id, name, emptyList()))
-                                    },
-                                    onDeletePlaylist = { id -> repository.deletePlaylist(id) },
-                                    onTrackClick = { playerManager.play(it) },
-                                    onRemoveTrackFromPlaylist = { playlistId, trackId ->
-                                        repository.removeTrackFromPlaylist(playlistId, trackId)
-                                    },
-                                    onPlayPlaylist = { playlist ->
-                                        val playlistTracks = (tracks + onlineSearchResults).distinctBy { it.id }.filter { playlist.trackIds.contains(it.id) }
-                                        if (playlistTracks.isNotEmpty()) {
-                                            playerManager.setPlaylist(playlistTracks)
-                                            playerManager.play(playlistTracks.first())
-                                        }
-                                    }
+                                NavigationRailItem(
+                                    selected = currentTab == "downloads",
+                                    onClick = { currentTab = "downloads" },
+                                    icon = { Icon(Icons.Default.DownloadDone, contentDescription = "Downloads") },
+                                    label = { Text("Downloads") },
+                                    colors = NavigationRailItemDefaults.colors(
+                                        selectedIconColor = CyanSecondary,
+                                        selectedTextColor = CyanSecondary,
+                                        indicatorColor = Color.White.copy(alpha = 0.1f),
+                                        unselectedIconColor = Color.White.copy(alpha = 0.6f),
+                                        unselectedTextColor = Color.White.copy(alpha = 0.6f)
+                                    )
+                                )
+                                NavigationRailItem(
+                                    selected = currentTab == "playlists",
+                                    onClick = { currentTab = "playlists" },
+                                    icon = { Icon(Icons.Default.List, contentDescription = "Playlists") },
+                                    label = { Text("Playlists") },
+                                    colors = NavigationRailItemDefaults.colors(
+                                        selectedIconColor = VioletPrimary,
+                                        selectedTextColor = VioletPrimary,
+                                        indicatorColor = Color.White.copy(alpha = 0.1f),
+                                        unselectedIconColor = Color.White.copy(alpha = 0.6f),
+                                        unselectedTextColor = Color.White.copy(alpha = 0.6f)
+                                    )
                                 )
                             }
                         }
 
-                        // Floating Player Bar if a track is loaded
-                        if (playbackState.currentTrack != null) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .align(Alignment.BottomCenter)
-                                    .padding(bottom = 8.dp)
-                            ) {
-                                PlayerBar(
-                                    state = playbackState,
-                                    onPlayPauseClick = { playerManager.togglePlay() },
-                                    onNextClick = { playerManager.next() },
-                                    onPrevClick = { playerManager.prev() },
-                                    onSeek = { playerManager.seekTo(it) },
-                                    onShuffleClick = { playerManager.toggleShuffle() },
-                                    onRepeatClick = { playerManager.toggleRepeat() },
-                                    onVolumeChange = { playerManager.setVolume(it) }
-                                )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                        ) {
+                            // Switch between Screens
+                            when (currentTab) {
+                                "explore" -> {
+                                    ExploreScreen(
+                                        tracks = tracks,
+                                        onlineSearchResults = onlineSearchResults,
+                                        isSearchingOnline = isSearchingOnline,
+                                        onlineSearchError = onlineSearchError,
+                                        isSyncing = isSyncing,
+                                        playbackState = playbackState,
+                                        onSearchOnline = { query, src -> repository.searchOnline(query, src) },
+                                        onClearOnlineSearch = { repository.clearOnlineSearch() },
+                                        onTrackClick = { playerManager.play(it) },
+                                        onDownloadClick = { repository.downloadTrack(it) },
+                                        onDeleteClick = { repository.deleteTrack(it) },
+                                        onPlayArtistClick = { artist ->
+                                            val combined = (tracks + onlineSearchResults).distinctBy { it.id }
+                                            val artistTracks = combined.filter { it.artist == artist }
+                                            if (artistTracks.isNotEmpty()) {
+                                                playerManager.setPlaylist(artistTracks)
+                                                playerManager.play(artistTracks.first())
+                                            }
+                                        },
+                                        onPlayAlbumClick = { album ->
+                                            val combined = (tracks + onlineSearchResults).distinctBy { it.id }
+                                            val albumTracks = combined.filter { it.album == album }
+                                            if (albumTracks.isNotEmpty()) {
+                                                playerManager.setPlaylist(albumTracks)
+                                                playerManager.play(albumTracks.first())
+                                            }
+                                        },
+                                        onAddToPlaylistClick = {
+                                            trackToAddToPlaylistId = it.id
+                                            showPlaylistPickerDialog = true
+                                        }
+                                    )
+                                }
+                                "downloads" -> {
+                                    DownloadsScreen(
+                                        tracks = tracks,
+                                        playbackState = playbackState,
+                                        onTrackClick = { playerManager.play(it) },
+                                        onDeleteClick = { repository.deleteTrack(it) },
+                                        onPlayArtistClick = { artist ->
+                                            val artistTracks = tracks.filter { it.artist == artist && it.isDownloaded }
+                                            if (artistTracks.isNotEmpty()) {
+                                                playerManager.setPlaylist(artistTracks)
+                                                playerManager.play(artistTracks.first())
+                                            }
+                                        },
+                                        onPlayAlbumClick = { album ->
+                                            val albumTracks = tracks.filter { it.album == album && it.isDownloaded }
+                                            if (albumTracks.isNotEmpty()) {
+                                                playerManager.setPlaylist(albumTracks)
+                                                playerManager.play(albumTracks.first())
+                                            }
+                                        }
+                                    )
+                                }
+                                "playlists" -> {
+                                    PlaylistsScreen(
+                                        playlists = playlists,
+                                        tracks = (tracks + onlineSearchResults).distinctBy { it.id },
+                                        playbackState = playbackState,
+                                        onCreatePlaylist = { name ->
+                                            val id = "playlist_${System.currentTimeMillis()}"
+                                            repository.savePlaylist(Playlist(id, name, emptyList()))
+                                        },
+                                        onDeletePlaylist = { id -> repository.deletePlaylist(id) },
+                                        onTrackClick = { playerManager.play(it) },
+                                        onRemoveTrackFromPlaylist = { playlistId, trackId ->
+                                            repository.removeTrackFromPlaylist(playlistId, trackId)
+                                        },
+                                        onPlayPlaylist = { playlist ->
+                                            val playlistTracks = (tracks + onlineSearchResults).distinctBy { it.id }.filter { playlist.trackIds.contains(it.id) }
+                                            if (playlistTracks.isNotEmpty()) {
+                                                playerManager.setPlaylist(playlistTracks)
+                                                playerManager.play(playlistTracks.first())
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+
+                            // Floating Player Bar if a track is loaded
+                            if (playbackState.currentTrack != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .align(Alignment.BottomCenter)
+                                        .padding(bottom = 8.dp)
+                                ) {
+                                    PlayerBar(
+                                        state = playbackState,
+                                        onPlayPauseClick = { playerManager.togglePlay() },
+                                        onNextClick = { playerManager.next() },
+                                        onPrevClick = { playerManager.prev() },
+                                        onSeek = { playerManager.seekTo(it) },
+                                        onShuffleClick = { playerManager.toggleShuffle() },
+                                        onRepeatClick = { playerManager.toggleRepeat() },
+                                        onVolumeChange = { playerManager.setVolume(it) },
+                                        isLandscape = isTabletOrLandscape
+                                    )
+                                }
                             }
                         }
                     }
-                }
+                }}
             }
         }
     }

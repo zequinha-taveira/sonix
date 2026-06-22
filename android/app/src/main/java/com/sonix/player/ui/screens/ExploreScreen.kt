@@ -18,6 +18,9 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import android.content.res.Configuration
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,6 +61,11 @@ fun ExploreScreen(
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedSourceFilter by rememberSaveable { mutableStateOf("Todas as Origens") }
     var selectedTypeFilter by rememberSaveable { mutableStateOf("Tudo") }
+ 
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val screenWidthDp = configuration.screenWidthDp
+    val isTabletOrLandscape = isLandscape || screenWidthDp >= 600
 
     LaunchedEffect(searchQuery, selectedSourceFilter) {
         if (searchQuery.isNotBlank()) {
@@ -140,38 +148,40 @@ fun ExploreScreen(
             }
         }
 
-        // Hero Banner
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(110.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            VioletPrimary.copy(alpha = 0.8f),
-                            PinkTertiary.copy(alpha = 0.6f),
-                            CyanSecondary.copy(alpha = 0.5f)
+        // Hero Banner — compact in landscape to save vertical space
+        if (!isTabletOrLandscape) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(110.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                VioletPrimary.copy(alpha = 0.8f),
+                                PinkTertiary.copy(alpha = 0.6f),
+                                CyanSecondary.copy(alpha = 0.5f)
+                            )
                         )
                     )
-                )
-                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp))
-                .padding(20.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Column {
-                Text(
-                    text = "Sonix Premium",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "Busque, crie playlists e ouça offline sem interrupções",
-                    fontSize = 12.sp,
-                    color = Color.White.copy(alpha = 0.8f)
-                )
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp))
+                    .padding(20.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Column {
+                    Text(
+                        text = "Sonix Premium",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Busque, crie playlists e ouça offline sem interrupções",
+                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.8f)
+                    )
+                }
             }
         }
 
@@ -280,97 +290,27 @@ fun ExploreScreen(
                     )
                 }
             } else {
-                Text(
-                    text = "Músicas Disponíveis",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 120.dp)
-                ) {
-                    items(tracks, key = { it.id }) { track ->
-                        val isCurrent = playbackState.currentTrack?.id == track.id
-                        TrackRow(
-                            track = track,
-                            isPlaying = playbackState.isPlaying,
-                            isCurrentTrack = isCurrent,
-                            onTrackClick = { onTrackClick(track) },
-                            onDownloadClick = { onDownloadClick(track) },
-                            onDeleteClick = { onDeleteClick(track) },
-                            onPlaylistClick = { onAddToPlaylistClick(track) }
-                        )
-                    }
-                }
-            }
-        } else {
-            if (matchingArtists.isEmpty() && matchingAlbums.isEmpty() && matchingTracks.isEmpty() && onlineSearchResults.isEmpty() && !isSearchingOnline) {
-                Box(
+                Column(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .widthIn(max = 700.dp)
+                        .align(Alignment.CenterHorizontally)
                 ) {
                     Text(
-                        text = if (onlineSearchError != null) "Sem conexão com a internet" else "Nenhum resultado encontrado",
-                        color = Color.White.copy(alpha = 0.5f),
-                        fontSize = 14.sp
+                        text = "Músicas Disponíveis",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier.padding(bottom = 12.dp)
                     )
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 120.dp)
-                ) {
-                    // Artists Section
-                    if (matchingArtists.isNotEmpty()) {
-                        item {
-                            Text(
-                                text = "Artistas Locais",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White.copy(alpha = 0.7f),
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
-                        }
-                        items(matchingArtists) { artist ->
-                            ArtistRow(artist = artist, onClick = { onPlayArtistClick(artist) })
-                        }
-                    }
 
-                    // Albums Section
-                    if (matchingAlbums.isNotEmpty()) {
-                        item {
-                            Text(
-                                text = "Álbuns Locais",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White.copy(alpha = 0.7f),
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
-                        }
-                        items(matchingAlbums) { (album, artist) ->
-                            AlbumRow(album = album, artist = artist, onClick = { onPlayAlbumClick(album) })
-                        }
-                    }
-
-                    // Local Tracks Section
-                    if (matchingTracks.isNotEmpty()) {
-                        item {
-                            Text(
-                                text = "Músicas Locais",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White.copy(alpha = 0.7f),
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
-                        }
-                        items(matchingTracks, key = { it.id }) { track ->
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(bottom = 120.dp)
+                    ) {
+                        items(tracks, key = { it.id }) { track ->
                             val isCurrent = playbackState.currentTrack?.id == track.id
                             TrackRow(
                                 track = track,
@@ -383,53 +323,225 @@ fun ExploreScreen(
                             )
                         }
                     }
+                }
+            }
+        } else {
+            if (isTabletOrLandscape) {
+                // Split-column layout for tablets and landscape orientation
+                if (matchingArtists.isEmpty() && matchingAlbums.isEmpty() && matchingTracks.isEmpty() && onlineSearchResults.isEmpty() && !isSearchingOnline) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (onlineSearchError != null) "Sem conexão com a internet" else "Nenhum resultado encontrado",
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontSize = 14.sp
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(24.dp)
+                    ) {
+                        // Left Column: Local search results (Artists & Albums)
+                        if (renderArtists || renderAlbums) {
+                            LazyColumn(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                contentPadding = PaddingValues(bottom = 120.dp)
+                            ) {
+                                if (renderArtists && matchingArtists.isNotEmpty()) {
+                                    item {
+                                        Text(
+                                            text = "Artistas Locais",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White.copy(alpha = 0.7f),
+                                            modifier = Modifier.padding(vertical = 8.dp)
+                                        )
+                                    }
+                                    items(matchingArtists) { artist ->
+                                        ArtistRow(artist = artist, onClick = { onPlayArtistClick(artist) })
+                                    }
+                                }
 
-                    // Online Results Section
-                    if (renderTracks) {
-                        item {
-                            Text(
-                                text = "Resultados Online",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White.copy(alpha = 0.7f),
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
-                        }
-
-                        if (isSearchingOnline) {
-                            item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(
-                                        color = VioletPrimary,
-                                        modifier = Modifier.size(24.dp)
-                                    )
+                                if (renderAlbums && matchingAlbums.isNotEmpty()) {
+                                    item {
+                                        Text(
+                                            text = "Álbuns Locais",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White.copy(alpha = 0.7f),
+                                            modifier = Modifier.padding(vertical = 8.dp)
+                                        )
+                                    }
+                                    items(matchingAlbums) { (album, artist) ->
+                                        AlbumRow(album = album, artist = artist, onClick = { onPlayAlbumClick(album) })
+                                    }
                                 }
                             }
-                        } else if (onlineSearchError != null) {
+                        }
+
+                        // Right Column: Local Tracks & Online Results
+                        if (renderTracks) {
+                            LazyColumn(
+                                modifier = Modifier.weight(1.2f),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                contentPadding = PaddingValues(bottom = 120.dp)
+                            ) {
+                                if (matchingTracks.isNotEmpty()) {
+                                    item {
+                                        Text(
+                                            text = "Músicas Locais",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White.copy(alpha = 0.7f),
+                                            modifier = Modifier.padding(vertical = 8.dp)
+                                        )
+                                    }
+                                    items(matchingTracks, key = { it.id }) { track ->
+                                        val isCurrent = playbackState.currentTrack?.id == track.id
+                                        TrackRow(
+                                            track = track,
+                                            isPlaying = playbackState.isPlaying,
+                                            isCurrentTrack = isCurrent,
+                                            onTrackClick = { onTrackClick(track) },
+                                            onDownloadClick = { onDownloadClick(track) },
+                                            onDeleteClick = { onDeleteClick(track) },
+                                            onPlaylistClick = { onAddToPlaylistClick(track) }
+                                        )
+                                    }
+                                }
+
+                                item {
+                                    Text(
+                                        text = "Resultados Online",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White.copy(alpha = 0.7f),
+                                        modifier = Modifier.padding(vertical = 8.dp)
+                                    )
+                                }
+
+                                if (isSearchingOnline) {
+                                    item {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(16.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(
+                                                color = VioletPrimary,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                    }
+                                } else if (onlineSearchError != null) {
+                                    item {
+                                        Text(
+                                            text = "Sem conexão com a internet.",
+                                            color = Color.White.copy(alpha = 0.5f),
+                                            fontSize = 14.sp,
+                                            modifier = Modifier.padding(vertical = 8.dp)
+                                        )
+                                    }
+                                } else if (onlineSearchResults.isEmpty()) {
+                                    item {
+                                        Text(
+                                            text = "Nenhuma música online encontrada.",
+                                            color = Color.White.copy(alpha = 0.5f),
+                                            fontSize = 14.sp,
+                                            modifier = Modifier.padding(vertical = 8.dp)
+                                        )
+                                    }
+                                } else {
+                                    items(onlineSearchResults, key = { it.id }) { track ->
+                                        val isCurrent = playbackState.currentTrack?.id == track.id
+                                        TrackRow(
+                                            track = track,
+                                            isPlaying = playbackState.isPlaying,
+                                            isCurrentTrack = isCurrent,
+                                            onTrackClick = { onTrackClick(track) },
+                                            onDownloadClick = { onDownloadClick(track) },
+                                            onDeleteClick = { onDeleteClick(track) },
+                                            onPlaylistClick = { onAddToPlaylistClick(track) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                if (matchingArtists.isEmpty() && matchingAlbums.isEmpty() && matchingTracks.isEmpty() && onlineSearchResults.isEmpty() && !isSearchingOnline) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (onlineSearchError != null) "Sem conexão com a internet" else "Nenhum resultado encontrado",
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontSize = 14.sp
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(bottom = 120.dp)
+                    ) {
+                        // Artists Section
+                        if (matchingArtists.isNotEmpty()) {
                             item {
                                 Text(
-                                    text = "Sem conexão com a internet.",
-                                    color = Color.White.copy(alpha = 0.5f),
+                                    text = "Artistas Locais",
                                     fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White.copy(alpha = 0.7f),
                                     modifier = Modifier.padding(vertical = 8.dp)
                                 )
                             }
-                        } else if (onlineSearchResults.isEmpty()) {
+                            items(matchingArtists) { artist ->
+                                ArtistRow(artist = artist, onClick = { onPlayArtistClick(artist) })
+                            }
+                        }
+
+                        // Albums Section
+                        if (matchingAlbums.isNotEmpty()) {
                             item {
                                 Text(
-                                    text = "Nenhuma música online encontrada.",
-                                    color = Color.White.copy(alpha = 0.5f),
+                                    text = "Álbuns Locais",
                                     fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White.copy(alpha = 0.7f),
                                     modifier = Modifier.padding(vertical = 8.dp)
                                 )
                             }
-                        } else {
-                            items(onlineSearchResults, key = { it.id }) { track ->
+                            items(matchingAlbums) { (album, artist) ->
+                                AlbumRow(album = album, artist = artist, onClick = { onPlayAlbumClick(album) })
+                            }
+                        }
+
+                        // Local Tracks Section
+                        if (matchingTracks.isNotEmpty()) {
+                            item {
+                                Text(
+                                    text = "Músicas Locais",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                            }
+                            items(matchingTracks, key = { it.id }) { track ->
                                 val isCurrent = playbackState.currentTrack?.id == track.id
                                 TrackRow(
                                     track = track,
@@ -440,6 +552,66 @@ fun ExploreScreen(
                                     onDeleteClick = { onDeleteClick(track) },
                                     onPlaylistClick = { onAddToPlaylistClick(track) }
                                 )
+                            }
+                        }
+
+                        // Online Results Section
+                        if (renderTracks) {
+                            item {
+                                Text(
+                                    text = "Resultados Online",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                            }
+
+                            if (isSearchingOnline) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            color = VioletPrimary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
+                            } else if (onlineSearchError != null) {
+                                item {
+                                    Text(
+                                        text = "Sem conexão com a internet.",
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        fontSize = 14.sp,
+                                        modifier = Modifier.padding(vertical = 8.dp)
+                                    )
+                                }
+                            } else if (onlineSearchResults.isEmpty()) {
+                                item {
+                                    Text(
+                                        text = "Nenhuma música online encontrada.",
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        fontSize = 14.sp,
+                                        modifier = Modifier.padding(vertical = 8.dp)
+                                    )
+                                }
+                            } else {
+                                items(onlineSearchResults, key = { it.id }) { track ->
+                                    val isCurrent = playbackState.currentTrack?.id == track.id
+                                    TrackRow(
+                                        track = track,
+                                        isPlaying = playbackState.isPlaying,
+                                        isCurrentTrack = isCurrent,
+                                        onTrackClick = { onTrackClick(track) },
+                                        onDownloadClick = { onDownloadClick(track) },
+                                        onDeleteClick = { onDeleteClick(track) },
+                                        onPlaylistClick = { onAddToPlaylistClick(track) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -616,3 +788,30 @@ fun AlbumRow(
         )
     }
 }
+
+@Preview(name = "Explore Screen - Retrato", showBackground = true)
+@Composable
+fun ExploreScreenPreview() {
+    val sampleTracks = listOf(
+        Track("1", "Like a Stone", "Audioslave", "Audioslave", "", "4:54"),
+        Track("2", "Show Me How to Live", "Audioslave", "Audioslave", "", "4:37"),
+        Track("3", "Be Yourself", "Audioslave", "Out of Exile", "", "4:39")
+    )
+    ExploreScreen(
+        tracks = sampleTracks,
+        onlineSearchResults = emptyList(),
+        isSearchingOnline = false,
+        onlineSearchError = null,
+        isSyncing = false,
+        playbackState = PlaybackState(currentTrack = sampleTracks.first(), isPlaying = true),
+        onSearchOnline = { _, _ -> },
+        onClearOnlineSearch = {},
+        onTrackClick = {},
+        onDownloadClick = {},
+        onDeleteClick = {},
+        onPlayArtistClick = {},
+        onPlayAlbumClick = {},
+        onAddToPlaylistClick = {}
+    )
+}
+

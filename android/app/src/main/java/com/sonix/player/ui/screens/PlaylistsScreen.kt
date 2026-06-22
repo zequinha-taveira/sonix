@@ -20,6 +20,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -196,8 +198,12 @@ fun PlaylistsScreen(
                     }
                 }
             } else {
+                val configuration = LocalConfiguration.current
+                val screenWidthDp = configuration.screenWidthDp
+                val columns = if (screenWidthDp >= 900) 4 else if (screenWidthDp >= 600) 3 else 2
+
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
+                    columns = GridCells.Fixed(columns),
                     modifier = Modifier.weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -215,146 +221,153 @@ fun PlaylistsScreen(
             }
         } else {
             // DETAILED PLAYLIST VIEW
-            Spacer(modifier = Modifier.height(16.dp))
-            IconButton(
-                onClick = { selectedPlaylistId = null },
-                modifier = Modifier.size(32.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.ArrowBack,
-                    contentDescription = "Voltar",
-                    tint = Color.White
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Playlist Header
-            Row(
+            Column(
                 modifier = Modifier
+                    .fillMaxSize()
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                verticalAlignment = Alignment.Bottom
+                    .widthIn(max = 700.dp)
+                    .align(Alignment.CenterHorizontally)
             ) {
-                val initial = if (selectedPlaylist.name.isNotEmpty()) selectedPlaylist.name.take(1).uppercase() else "🎵"
-                Box(
-                    modifier = Modifier
-                        .size(100.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(VioletPrimary, PinkTertiary)
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
+                Spacer(modifier = Modifier.height(16.dp))
+                IconButton(
+                    onClick = { selectedPlaylistId = null },
+                    modifier = Modifier.size(32.dp)
                 ) {
-                    Text(
-                        text = initial,
-                        fontSize = 42.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White
+                    Icon(
+                        imageVector = Icons.Filled.ArrowBack,
+                        contentDescription = "Voltar",
+                        tint = Color.White
                     )
                 }
 
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                Column {
-                    Text(
-                        text = "PLAYLIST PERSONALIZADA",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = CyanSecondary,
-                        letterSpacing = 1.sp
-                    )
-                    Text(
-                        text = selectedPlaylist.name,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "${selectedPlaylist.trackIds.size} músicas",
-                        fontSize = 12.sp,
-                        color = Color.White.copy(alpha = 0.5f)
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Button(
-                        onClick = { onPlayPlaylist(selectedPlaylist) },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = CyanSecondary
-                        ),
-                        shape = RoundedCornerShape(20.dp),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                        modifier = Modifier.height(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = "Reproduzir",
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Reproduzir", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            val playlistTracks = remember(selectedPlaylist, tracks) {
-                tracks.filter { selectedPlaylist.trackIds.contains(it.id) }
-            }
-
-            if (playlistTracks.isEmpty()) {
-                Box(
+                // Playlist Header
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.Bottom
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(32.dp)
+                    val initial = if (selectedPlaylist.name.isNotEmpty()) selectedPlaylist.name.take(1).uppercase() else "🎵"
+                    Box(
+                        modifier = Modifier
+                            .size(100.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(VioletPrimary, PinkTertiary)
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "Playlist Vazia",
-                            color = Color.White.copy(alpha = 0.8f),
+                            text = initial,
+                            fontSize = 42.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    Column {
+                        Text(
+                            text = "PLAYLIST PERSONALIZADA",
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
+                            color = CyanSecondary,
+                            letterSpacing = 1.sp
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Explore novas músicas e adicione-as nesta playlist usando o botão '+' na lista de músicas.",
-                            color = Color.White.copy(alpha = 0.5f),
-                            fontSize = 14.sp,
-                            textAlign = TextAlign.Center
+                            text = selectedPlaylist.name,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "${selectedPlaylist.trackIds.size} músicas",
+                            fontSize = 12.sp,
+                            color = Color.White.copy(alpha = 0.5f)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Button(
+                            onClick = { onPlayPlaylist(selectedPlaylist) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = CyanSecondary
+                            ),
+                            shape = RoundedCornerShape(20.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.PlayArrow,
+                                contentDescription = "Reproduzir",
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Reproduzir", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 120.dp)
-                ) {
-                    items(playlistTracks, key = { it.id }) { track ->
-                        val isCurrent = playbackState.currentTrack?.id == track.id
-                        TrackRow(
-                            track = track,
-                            isPlaying = playbackState.isPlaying,
-                            isCurrentTrack = isCurrent,
-                            onTrackClick = { onTrackClick(track) },
-                            onDownloadClick = {},
-                            onDeleteClick = { onRemoveTrackFromPlaylist(selectedPlaylist.id, track.id) }
-                        )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                val playlistTracks = remember(selectedPlaylist, tracks) {
+                    tracks.filter { selectedPlaylist.trackIds.contains(it.id) }
+                }
+
+                if (playlistTracks.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(32.dp)
+                        ) {
+                            Text(
+                                text = "Playlist Vazia",
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Explore novas músicas e adicione-as nesta playlist usando o botão '+' na lista de músicas.",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 14.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(bottom = 120.dp)
+                    ) {
+                        items(playlistTracks, key = { it.id }) { track ->
+                            val isCurrent = playbackState.currentTrack?.id == track.id
+                            TrackRow(
+                                track = track,
+                                isPlaying = playbackState.isPlaying,
+                                isCurrentTrack = isCurrent,
+                                onTrackClick = { onTrackClick(track) },
+                                onDownloadClick = {},
+                                onDeleteClick = { onRemoveTrackFromPlaylist(selectedPlaylist.id, track.id) }
+                            )
+                        }
                     }
                 }
             }
-        }
     }
 }
 
@@ -457,3 +470,27 @@ fun PlaylistCard(
         }
     }
 }
+
+@Preview(name = "Playlists Screen - Retrato", showBackground = true)
+@Composable
+fun PlaylistsScreenPreview() {
+    val sampleTracks = listOf(
+        Track("1", "Like a Stone", "Audioslave", "Audioslave", "", "4:54"),
+        Track("2", "Show Me How to Live", "Audioslave", "Audioslave", "", "4:37")
+    )
+    val samplePlaylists = listOf(
+        Playlist("p1", "Favoritas", listOf("1", "2")),
+        Playlist("p2", "Foco / Trabalho", listOf("2"))
+    )
+    PlaylistsScreen(
+        playlists = samplePlaylists,
+        tracks = sampleTracks,
+        playbackState = PlaybackState(),
+        onCreatePlaylist = {},
+        onDeletePlaylist = {},
+        onTrackClick = {},
+        onRemoveTrackFromPlaylist = { _, _ -> },
+        onPlayPlaylist = {}
+    )
+}
+

@@ -11,6 +11,9 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import android.content.res.Configuration
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,6 +40,11 @@ fun DownloadsScreen(
 ) {
     val downloadedTracks = remember(tracks) { tracks.filter { it.isDownloaded } }
     var searchQuery by rememberSaveable { mutableStateOf("") }
+
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val screenWidthDp = configuration.screenWidthDp
+    val isTabletOrLandscape = isLandscape || screenWidthDp >= 600
 
     val matchingArtists = remember(downloadedTracks, searchQuery) {
         if (searchQuery.isBlank()) emptyList<String>()
@@ -132,94 +140,191 @@ fun DownloadsScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             if (searchQuery.isBlank()) {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 120.dp) // Padding for PlayerBar
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .widthIn(max = 700.dp)
+                        .align(Alignment.CenterHorizontally)
                 ) {
-                    items(downloadedTracks, key = { it.id }) { track ->
-                        val isCurrent = playbackState.currentTrack?.id == track.id
-                        TrackRow(
-                            track = track,
-                            isPlaying = playbackState.isPlaying,
-                            isCurrentTrack = isCurrent,
-                            onTrackClick = { onTrackClick(track) },
-                            onDownloadClick = {}, // Not needed on downloads screen
-                            onDeleteClick = { onDeleteClick(track) }
-                        )
-                    }
-                }
-            } else {
-                if (matchingArtists.isEmpty() && matchingAlbums.isEmpty() && matchingTracks.isEmpty()) {
-                    Box(
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Nenhuma música encontrada",
-                            color = Color.White.copy(alpha = 0.5f),
-                            fontSize = 14.sp
-                        )
-                    }
-                } else {
                     LazyColumn(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = PaddingValues(bottom = 120.dp) // Padding for PlayerBar
                     ) {
-                        // Artists Section
-                        if (matchingArtists.isNotEmpty()) {
-                            item {
-                                Text(
-                                    text = "Artistas",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    modifier = Modifier.padding(vertical = 8.dp)
-                                )
+                        items(downloadedTracks, key = { it.id }) { track ->
+                            val isCurrent = playbackState.currentTrack?.id == track.id
+                            TrackRow(
+                                track = track,
+                                isPlaying = playbackState.isPlaying,
+                                isCurrentTrack = isCurrent,
+                                onTrackClick = { onTrackClick(track) },
+                                onDownloadClick = {}, // Not needed on downloads screen
+                                onDeleteClick = { onDeleteClick(track) }
+                            )
+                        }
+                    }
+                }
+            } else {
+                if (isTabletOrLandscape) {
+                    if (matchingArtists.isEmpty() && matchingAlbums.isEmpty() && matchingTracks.isEmpty()) {
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Nenhuma música encontrada",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 14.sp
+                            )
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(24.dp)
+                        ) {
+                            // Left column: Artists & Albums
+                            LazyColumn(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                contentPadding = PaddingValues(bottom = 120.dp)
+                            ) {
+                                if (matchingArtists.isNotEmpty()) {
+                                    item {
+                                        Text(
+                                            text = "Artistas",
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White.copy(alpha = 0.7f),
+                                            modifier = Modifier.padding(vertical = 8.dp)
+                                        )
+                                    }
+                                    items(matchingArtists) { artist ->
+                                        ArtistRow(artist = artist, onClick = { onPlayArtistClick(artist) })
+                                    }
+                                }
+
+                                if (matchingAlbums.isNotEmpty()) {
+                                    item {
+                                        Text(
+                                            text = "Álbuns",
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White.copy(alpha = 0.7f),
+                                            modifier = Modifier.padding(vertical = 8.dp)
+                                        )
+                                    }
+                                    items(matchingAlbums) { (album, artist) ->
+                                        AlbumRow(album = album, artist = artist, onClick = { onPlayAlbumClick(album) })
+                                    }
+                                }
                             }
-                            items(matchingArtists) { artist ->
-                                ArtistRow(artist = artist, onClick = { onPlayArtistClick(artist) })
+
+                            // Right column: Tracks
+                            LazyColumn(
+                                modifier = Modifier.weight(1.2f),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                contentPadding = PaddingValues(bottom = 120.dp)
+                            ) {
+                                if (matchingTracks.isNotEmpty()) {
+                                    item {
+                                        Text(
+                                            text = "Músicas",
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White.copy(alpha = 0.7f),
+                                            modifier = Modifier.padding(vertical = 8.dp)
+                                        )
+                                    }
+                                    items(matchingTracks, key = { it.id }) { track ->
+                                        val isCurrent = playbackState.currentTrack?.id == track.id
+                                        TrackRow(
+                                            track = track,
+                                            isPlaying = playbackState.isPlaying,
+                                            isCurrentTrack = isCurrent,
+                                            onTrackClick = { onTrackClick(track) },
+                                            onDownloadClick = {},
+                                            onDeleteClick = { onDeleteClick(track) }
+                                        )
+                                    }
+                                }
                             }
                         }
-
-                        // Albums Section
-                        if (matchingAlbums.isNotEmpty()) {
-                            item {
-                                Text(
-                                    text = "Álbuns",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    modifier = Modifier.padding(vertical = 8.dp)
-                                )
-                            }
-                            items(matchingAlbums) { (album, artist) ->
-                                AlbumRow(album = album, artist = artist, onClick = { onPlayAlbumClick(album) })
-                            }
+                    }
+                } else {
+                    if (matchingArtists.isEmpty() && matchingAlbums.isEmpty() && matchingTracks.isEmpty()) {
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Nenhuma música encontrada",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 14.sp
+                            )
                         }
-
-                        // Tracks Section
-                        if (matchingTracks.isNotEmpty()) {
-                            item {
-                                Text(
-                                    text = "Músicas",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    modifier = Modifier.padding(vertical = 8.dp)
-                                )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(bottom = 120.dp) // Padding for PlayerBar
+                        ) {
+                            // Artists Section
+                            if (matchingArtists.isNotEmpty()) {
+                                item {
+                                    Text(
+                                        text = "Artistas",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White.copy(alpha = 0.7f),
+                                        modifier = Modifier.padding(vertical = 8.dp)
+                                    )
+                                }
+                                items(matchingArtists) { artist ->
+                                    ArtistRow(artist = artist, onClick = { onPlayArtistClick(artist) })
+                                }
                             }
-                            items(matchingTracks, key = { it.id }) { track ->
-                                val isCurrent = playbackState.currentTrack?.id == track.id
-                                TrackRow(
-                                    track = track,
-                                    isPlaying = playbackState.isPlaying,
-                                    isCurrentTrack = isCurrent,
-                                    onTrackClick = { onTrackClick(track) },
-                                    onDownloadClick = {},
-                                    onDeleteClick = { onDeleteClick(track) }
-                                )
+
+                            // Albums Section
+                            if (matchingAlbums.isNotEmpty()) {
+                                item {
+                                    Text(
+                                        text = "Álbuns",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White.copy(alpha = 0.7f),
+                                        modifier = Modifier.padding(vertical = 8.dp)
+                                    )
+                                }
+                                items(matchingAlbums) { (album, artist) ->
+                                    AlbumRow(album = album, artist = artist, onClick = { onPlayAlbumClick(album) })
+                                }
+                            }
+
+                            // Tracks Section
+                            if (matchingTracks.isNotEmpty()) {
+                                item {
+                                    Text(
+                                        text = "Músicas",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White.copy(alpha = 0.7f),
+                                        modifier = Modifier.padding(vertical = 8.dp)
+                                    )
+                                }
+                                items(matchingTracks, key = { it.id }) { track ->
+                                    val isCurrent = playbackState.currentTrack?.id == track.id
+                                    TrackRow(
+                                        track = track,
+                                        isPlaying = playbackState.isPlaying,
+                                        isCurrentTrack = isCurrent,
+                                        onTrackClick = { onTrackClick(track) },
+                                        onDownloadClick = {},
+                                        onDeleteClick = { onDeleteClick(track) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -229,3 +334,20 @@ fun DownloadsScreen(
     }
 }
 
+@Preview(name = "Downloads Screen - Retrato", showBackground = true)
+@Composable
+fun DownloadsScreenPreview() {
+    val sampleTracks = listOf(
+        Track("1", "Like a Stone", "Audioslave", "Audioslave", "", "4:54", isDownloaded = true),
+        Track("2", "Show Me How to Live", "Audioslave", "Audioslave", "", "4:37", isDownloaded = true),
+        Track("3", "Be Yourself", "Audioslave", "Out of Exile", "", "4:39", isDownloaded = true)
+    )
+    DownloadsScreen(
+        tracks = sampleTracks,
+        playbackState = PlaybackState(currentTrack = sampleTracks.first(), isPlaying = true),
+        onTrackClick = {},
+        onDeleteClick = {},
+        onPlayArtistClick = {},
+        onPlayAlbumClick = {}
+    )
+}

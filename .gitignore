@@ -31,3 +31,6 @@ yarn-error.log*
 
 # Kotlin / JS compiler logs
 kotlin-js-store/
+
+# Agent skills
+.agents/

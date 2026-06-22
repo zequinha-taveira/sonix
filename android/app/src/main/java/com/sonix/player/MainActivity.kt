@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,7 +50,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             SonixTheme {
-                var currentTab by remember { mutableStateOf("explore") }
+                var currentTab by rememberSaveable { mutableStateOf("explore") }
                 val tracks by repository.tracks.collectAsState()
                 val onlineSearchResults by repository.onlineSearchResults.collectAsState()
                 val isSearchingOnline by repository.isSearchingOnline.collectAsState()
@@ -58,16 +59,20 @@ class MainActivity : ComponentActivity() {
                 val isSyncing by repository.isSyncing.collectAsState()
                 val playbackState by playerManager.playbackState.collectAsState()
 
-                var showPlaylistPickerDialog by remember { mutableStateOf(false) }
-                var trackToAddToPlaylist by remember { mutableStateOf<Track?>(null) }
+                var showPlaylistPickerDialog by rememberSaveable { mutableStateOf(false) }
+                var trackToAddToPlaylistId by rememberSaveable { mutableStateOf<String?>(null) }
+                val trackToAddToPlaylist = remember(trackToAddToPlaylistId, tracks, onlineSearchResults) {
+                    if (trackToAddToPlaylistId == null) null
+                    else (tracks + onlineSearchResults).find { it.id == trackToAddToPlaylistId }
+                }
 
                 // Dialog modal to select target playlist
                 if (showPlaylistPickerDialog && trackToAddToPlaylist != null) {
-                    val track = trackToAddToPlaylist!!
+                    val track = trackToAddToPlaylist
                     AlertDialog(
                         onDismissRequest = {
                             showPlaylistPickerDialog = false
-                            trackToAddToPlaylist = null
+                            trackToAddToPlaylistId = null
                         },
                         title = {
                             Text(
@@ -91,7 +96,7 @@ class MainActivity : ComponentActivity() {
 
                                 if (playlists.isEmpty()) {
                                     Text(
-                                        text = "Nenhuma playlist criada. Crie uma na aba Playlists!",
+                                        text = "Nenhuma playlist criada. Crie uma abaixo ou na aba Playlists!",
                                         color = PinkTertiary,
                                         fontSize = 14.sp,
                                         modifier = Modifier.padding(vertical = 12.dp)
@@ -99,7 +104,7 @@ class MainActivity : ComponentActivity() {
                                 } else {
                                     LazyColumn(
                                         verticalArrangement = Arrangement.spacedBy(4.dp),
-                                        modifier = Modifier.heightIn(max = 200.dp)
+                                        modifier = Modifier.heightIn(max = 160.dp)
                                     ) {
                                         items(playlists) { playlist ->
                                             val hasTrack = playlist.trackIds.contains(track.id)
@@ -116,7 +121,7 @@ class MainActivity : ComponentActivity() {
                                                             repository.addTrackToPlaylist(playlist.id, track.id)
                                                         }
                                                         showPlaylistPickerDialog = false
-                                                        trackToAddToPlaylist = null
+                                                        trackToAddToPlaylistId = null
                                                     }
                                                     .padding(12.dp),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -140,13 +145,62 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(1.dp)
+                                        .background(Color.White.copy(alpha = 0.1f))
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                var newPlaylistName by remember { mutableStateOf("") }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = newPlaylistName,
+                                        onValueChange = { newPlaylistName = it },
+                                        placeholder = { Text("Nova playlist...", color = Color.White.copy(alpha = 0.4f), fontSize = 13.sp) },
+                                        singleLine = true,
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = CyanSecondary,
+                                            unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Button(
+                                        onClick = {
+                                            if (newPlaylistName.isNotBlank()) {
+                                                val id = "playlist_${System.currentTimeMillis()}"
+                                                repository.savePlaylist(Playlist(id, newPlaylistName.trim(), listOf(track.id)))
+                                                showPlaylistPickerDialog = false
+                                                trackToAddToPlaylistId = null
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = CyanSecondary,
+                                            contentColor = Color.White
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp)
+                                    ) {
+                                        Text("Criar", fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                    }
+                                }
                             }
                         },
                         confirmButton = {
                             TextButton(
                                 onClick = {
                                     showPlaylistPickerDialog = false
-                                    trackToAddToPlaylist = null
+                                    trackToAddToPlaylistId = null
                                 }
                             ) {
                                 Text("Fechar", color = Color.White)
@@ -249,7 +303,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                     },
                                     onAddToPlaylistClick = {
-                                        trackToAddToPlaylist = it
+                                        trackToAddToPlaylistId = it.id
                                         showPlaylistPickerDialog = true
                                     }
                                 )

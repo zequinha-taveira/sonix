@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,7 +35,7 @@ import com.sonix.player.ui.theme.DarkBackground
 import com.sonix.player.ui.theme.PinkTertiary
 import com.sonix.player.ui.theme.VioletPrimary
 import kotlinx.coroutines.delay
-
+ 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExploreScreen(
@@ -54,9 +55,9 @@ fun ExploreScreen(
     onAddToPlaylistClick: (Track) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedSourceFilter by remember { mutableStateOf("Todas as Origens") }
-    var selectedTypeFilter by remember { mutableStateOf("Tudo") }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var selectedSourceFilter by rememberSaveable { mutableStateOf("Todas as Origens") }
+    var selectedTypeFilter by rememberSaveable { mutableStateOf("Tudo") }
 
     LaunchedEffect(searchQuery, selectedSourceFilter) {
         if (searchQuery.isNotBlank()) {
@@ -483,6 +484,135 @@ fun CustomFilterChip(
             color = if (selected) Color.White else Color.White.copy(alpha = 0.6f),
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+fun ArtistRow(
+    artist: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.03f))
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Circular gradient avatar
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(VioletPrimary, PinkTertiary)
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            Column {
+                Text(
+                    text = artist,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "Artista",
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 12.sp
+                )
+            }
+        }
+        Icon(
+            imageVector = Icons.Default.PlayArrow,
+            contentDescription = "Reproduzir artista",
+            tint = Color.White.copy(alpha = 0.6f),
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+@Composable
+fun AlbumRow(
+    album: String,
+    artist: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.03f))
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Rounded rectangle with album icon
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(CyanSecondary, VioletPrimary)
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Album,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            Column {
+                Text(
+                    text = album,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "Álbum • $artist",
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        Icon(
+            imageVector = Icons.Default.PlayArrow,
+            contentDescription = "Reproduzir álbum",
+            tint = Color.White.copy(alpha = 0.6f),
+            modifier = Modifier.size(24.dp)
         )
     }
 }

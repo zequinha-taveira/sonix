@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,13 +50,13 @@ fun PlaylistsScreen(
     onPlayPlaylist: (Playlist) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var selectedPlaylistId by remember { mutableStateOf<String?>(null) }
+    var selectedPlaylistId by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedPlaylist = remember(playlists, selectedPlaylistId) {
         playlists.find { it.id == selectedPlaylistId }
     }
 
-    var showCreateDialog by remember { mutableStateOf(false) }
-    var newPlaylistName by remember { mutableStateOf("") }
+    var showCreateDialog by rememberSaveable { mutableStateOf(false) }
+    var newPlaylistName by rememberSaveable { mutableStateOf("") }
 
     if (showCreateDialog) {
         AlertDialog(

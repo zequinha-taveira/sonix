@@ -98,19 +98,22 @@ class MusicRepository(private val context: Context) {
         }
 
         coroutineScope.launch {
+            val file = getLocalFile(track)
+            val tmpFile = File(file.parentFile, "${file.name}.tmp")
             try {
-                val file = getLocalFile(track)
-                if (file.exists()) {
-                    file.delete()
+                if (tmpFile.exists()) {
+                    tmpFile.delete()
                 }
 
                 withContext(Dispatchers.IO) {
                     val urlConnection = URL(track.url).openConnection() as HttpURLConnection
+                    urlConnection.connectTimeout = 10000
+                    urlConnection.readTimeout = 15000
                     urlConnection.connect()
                     
                     if (urlConnection.responseCode == HttpURLConnection.HTTP_OK) {
                         urlConnection.inputStream.use { input ->
-                            FileOutputStream(file).use { output ->
+                            FileOutputStream(tmpFile).use { output ->
                                 val buffer = ByteArray(4096)
                                 var bytesRead: Int
                                 while (input.read(buffer).also { bytesRead = it } != -1) {
@@ -121,6 +124,18 @@ class MusicRepository(private val context: Context) {
                     } else {
                         throw Exception("HTTP error code: ${urlConnection.responseCode}")
                     }
+                }
+
+                if (tmpFile.exists() && tmpFile.length() > 0) {
+                    if (file.exists()) {
+                        file.delete()
+                    }
+                    val renameSuccess = tmpFile.renameTo(file)
+                    if (!renameSuccess) {
+                        throw Exception("Failed to rename temporary download file")
+                    }
+                } else {
+                    throw Exception("Downloaded file is empty or missing")
                 }
 
                 if (originalTracks.none { it.id == track.id }) {
@@ -139,6 +154,9 @@ class MusicRepository(private val context: Context) {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                if (tmpFile.exists()) {
+                    tmpFile.delete()
+                }
                 _tracks.value = _tracks.value.map {
                     if (it.id == track.id) {
                         it.copy(isDownloading = false, isDownloaded = false)
@@ -222,6 +240,11 @@ class MusicRepository(private val context: Context) {
 
     // --- SharedPreferences Metadata Caching ---
 
+    private fun cleanForSharedPreferences(str: String): String {
+        // Strip control characters that are illegal in XML (e.g. \u0000-\u0008, \u000B, \u000C, \u000E-\u001F)
+        return str.replace(Regex("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]"), "")
+    }
+
     private fun saveDownloadedTrackMetadata(track: Track) {
         val sharedPrefs = context.getSharedPreferences("downloaded_tracks_prefs", Context.MODE_PRIVATE)
         val currentTracks = getDownloadedTracksMetadata().toMutableList()
@@ -238,7 +261,7 @@ class MusicRepository(private val context: Context) {
                 jobj.put("duration", t.duration)
                 jsonArray.put(jobj)
             }
-            sharedPrefs.edit().putString("tracks_metadata", jsonArray.toString()).apply()
+            sharedPrefs.edit().putString("tracks_metadata", cleanForSharedPreferences(jsonArray.toString())).apply()
         }
     }
 
@@ -256,7 +279,7 @@ class MusicRepository(private val context: Context) {
             jobj.put("duration", t.duration)
             jsonArray.put(jobj)
         }
-        sharedPrefs.edit().putString("tracks_metadata", jsonArray.toString()).apply()
+        sharedPrefs.edit().putString("tracks_metadata", cleanForSharedPreferences(jsonArray.toString())).apply()
     }
 
     private fun getDownloadedTracksMetadata(): List<Track> {
@@ -360,7 +383,7 @@ class MusicRepository(private val context: Context) {
             jobj.put("trackIds", trackIdsArray)
             jsonArray.put(jobj)
         }
-        sharedPrefs.edit().putString("playlists_data", jsonArray.toString()).apply()
+        sharedPrefs.edit().putString("playlists_data", cleanForSharedPreferences(jsonArray.toString())).apply()
         _playlists.value = list
     }
 }

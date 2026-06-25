@@ -2,6 +2,7 @@ import kotlinx.browser.document
 import kotlinx.browser.window
 import org.w3c.dom.*
 import org.w3c.dom.events.Event
+import org.w3c.dom.events.KeyboardEvent
 import org.khronos.webgl.Uint8Array
 import org.khronos.webgl.get
 
@@ -755,7 +756,7 @@ class MusicPlayerApp {
             View.PLAYLISTS -> "nav-playlists"
             View.VISUALIZER -> "nav-visualizer"
         }
-        document.getElementById(activeNavId)?.classList?.add("active")
+        (document.getElementById(activeNavId) as? HTMLElement)?.asDynamic()?.classList?.add("active")
 
         render()
     }
@@ -970,7 +971,8 @@ class MusicPlayerApp {
                             """.trimIndent()
                             
                             card.addEventListener("click", { event ->
-                                val target = event.target as? HTMLElement
+                                val target = (event.target as? Element)
+                                    ?: (event.currentTarget as? Element)
                                 if (target?.closest(".playlist-card-delete-btn") != null) {
                                     event.stopPropagation()
                                     PlaylistManager.deletePlaylist(p.id)
@@ -999,697 +1001,482 @@ class MusicPlayerApp {
                                 <button class="playlist-play-btn play-all-btn">
                                     <i class="fa-solid fa-play"></i> Reproduzir
                                 </button>
-                                <button class="modal-btn modal-btn-cancel back-btn" style="padding: 10px 20px; border-radius: 20px;">
-                                    Voltar
+                                <button class="playlist-play-btn rename-playlist-btn">
+                                    <i class="fa-solid fa-pen"></i> Renomear
+                                </button>
+                                <button class="playlist-play-btn delete-playlist-btn">
+                                    <i class="fa-solid fa-trash"></i> Excluir
                                 </button>
                             </div>
                         </div>
                     """.trimIndent()
                     viewContainer.appendChild(headerContainer)
                     
-                    headerContainer.querySelector(".back-btn")?.addEventListener("click", {
+                    headerContainer.querySelector(".play-all-btn")?.addEventListener("click", {
+                        val playlistTracks = getTracks().filter { t -> playlist.trackIds.contains(t.id) }
+                        if (playlistTracks.isNotEmpty()) {
+                            activePlaylistQueue = playlistTracks
+                            loadTrack(playlistTracks[0], autoPlay = true)
+                        }
+                    })
+                    
+                    headerContainer.querySelector(".rename-playlist-btn")?.addEventListener("click", {
+                        openRenamePlaylistModal(playlist)
+                    })
+                    
+                    headerContainer.querySelector(".delete-playlist-btn")?.addEventListener("click", {
+                        PlaylistManager.deletePlaylist(playlist.id)
                         selectedPlaylist = null
                         render()
                     })
                     
-                    headerContainer.querySelector(".play-all-btn")?.addEventListener("click", {
-                        playPlaylist(playlist)
-                    })
-                    
-                    val trackListContainer = document.createElement("div") as HTMLElement
-                    trackListContainer.className = "tracks-grid"
-                    viewContainer.appendChild(trackListContainer)
-                    
-                    val playlistTracks = getTracks().filter { playlist.trackIds.contains(it.id) }
+                    // Tracks in playlist
+                    val playlistTracks = getTracks().filter { t -> playlist.trackIds.contains(t.id) }
                     if (playlistTracks.isEmpty()) {
                         val empty = document.createElement("div") as HTMLElement
                         empty.className = "empty-state"
                         empty.innerHTML = """
                             <i class="fa-solid fa-music"></i>
-                            <h3>Esta playlist está vazia</h3>
-                            <p>Busque músicas na aba Explore e adicione-as aqui!</p>
+                            <h3>Nenhuma música nesta playlist</h3>
+                            <p>Procure e adicione suas músicas favoritas.</p>
                         """.trimIndent()
-                        trackListContainer.appendChild(empty)
+                        viewContainer.appendChild(empty)
                     } else {
+                        val title = document.createElement("h3") as HTMLElement
+                        title.className = "section-title"
+                        title.innerText = "Músicas"
+                        viewContainer.appendChild(title)
+
+                        val trackContainer = document.createElement("div") as HTMLElement
+                        trackContainer.className = "tracks-grid"
+                        viewContainer.appendChild(trackContainer)
+                        
                         playlistTracks.forEach { track ->
-                            renderTrackRow(trackListContainer, track)
+                            val card = createTrackCard(track, playlist.id)
+                            trackContainer.appendChild(card)
                         }
                     }
                 }
             }
             View.VISUALIZER -> {
-                renderVisualizer(viewContainer)
+                val canvas = document.createElement("canvas") as HTMLCanvasElement
+                canvas.className = "visualizer-canvas"
+                canvas.width = (window.innerWidth - 250).toInt()
+                canvas.height = window.innerHeight.toInt()
+                viewContainer.appendChild(canvas)
+                startVisualizerAnimation(canvas)
             }
         }
     }
 
-    private fun renderTrackList() {
-        val container = mainContainer?.querySelector(".tracks-grid") as? HTMLElement ?: return
-        container.innerHTML = ""
+    private fun renderPlayerBar() {
+        val player = playerBar ?: return
+        val track = currentTrack
+        val trackTitle = track?.title ?: "Nenhuma música"
+        val trackArtist = track?.artist ?: "Desconhecido"
+        val isDownloaded = if (track != null) downloadedTrackIds.contains(track.id) else false
+        val isDownloading = if (track != null) downloadingTrackIds.contains(track.id) else false
 
-        val isOfflineView = currentView == View.DOWNLOADS
-        val availableTracks = if (isOfflineView) getTracks().filter { downloadedTrackIds.contains(it.id) } else getTracks()
-
-        val renderArtists = selectedTypeFilter == "Tudo" || selectedTypeFilter == "Artistas"
-        val renderAlbums = selectedTypeFilter == "Tudo" || selectedTypeFilter == "Álbuns"
-        val renderTracks = selectedTypeFilter == "Tudo" || selectedTypeFilter == "Músicas"
-
-        if (searchQuery.isBlank()) {
-            if (selectedTypeFilter != "Tudo" && selectedTypeFilter != "Músicas") {
-                val empty = document.createElement("div") as HTMLElement
-                empty.className = "empty-state"
-                empty.innerHTML = """
-                    <i class="fa-solid fa-magnifying-glass"></i>
-                    <h3>Use a busca para filtrar por artistas ou álbuns</h3>
-                """.trimIndent()
-                container.appendChild(empty)
-                return
-            }
-
-            if (availableTracks.isEmpty()) {
-                val empty = document.createElement("div") as HTMLElement
-                empty.className = "empty-state"
-                if (isOfflineView) {
-                    empty.innerHTML = """
-                        <i class="fa-solid fa-circle-down"></i>
-                        <h3>Nenhum download offline</h3>
-                        <p>Vá para o Explore e clique no botão de download para salvar offline.</p>
-                    """.trimIndent()
-                } else {
-                    empty.innerHTML = """
-                        <i class="fa-solid fa-music"></i>
-                        <h3>Nenhuma música disponível</h3>
-                        <p>Algo deu errado ou a biblioteca está vazia.</p>
-                    """.trimIndent()
-                }
-                container.appendChild(empty)
-                return
-            }
-
-            availableTracks.forEach { track ->
-                renderTrackRow(container, track)
-            }
-        } else {
-            val matchingArtists = if (renderArtists) availableTracks.map { it.artist }.distinct().filter { it.lowercase().contains(searchQuery.lowercase()) } else emptyList()
-            val matchingAlbums = if (renderAlbums) availableTracks.map { it.album to it.artist }.distinctBy { it.first }.filter { it.first.lowercase().contains(searchQuery.lowercase()) } else emptyList()
-            val matchingTracks = if (renderTracks) availableTracks.filter { it.title.lowercase().contains(searchQuery.lowercase()) } else emptyList()
-
-            if (matchingArtists.isEmpty() && matchingAlbums.isEmpty() && matchingTracks.isEmpty() && (!window.navigator.onLine || currentView != View.EXPLORE || !renderTracks)) {
-                val empty = document.createElement("div") as HTMLElement
-                empty.className = "empty-state"
-                empty.innerHTML = """
-                    <i class="fa-solid fa-music"></i>
-                    <h3>Nenhum resultado encontrado</h3>
-                    <p>Tente buscar por outra palavra-chave ou altere os filtros.</p>
-                """.trimIndent()
-                container.appendChild(empty)
-                return
-            }
-
-            // Render Artists
-            if (matchingArtists.isNotEmpty()) {
-                val secHeader = document.createElement("div") as HTMLElement
-                secHeader.className = "search-section-header"
-                secHeader.innerText = "Artistas"
-                container.appendChild(secHeader)
-
-                matchingArtists.forEach { artist ->
-                    val row = document.createElement("div") as HTMLElement
-                    row.className = "search-item-row artist-row"
-                    row.innerHTML = """
-                        <div class="row-left">
-                            <div class="item-art artist-art">
-                                <i class="fa-solid fa-user"></i>
-                            </div>
-                            <div class="item-details">
-                                <span class="item-title">$artist</span>
-                                <span class="item-subtitle">Artista</span>
-                            </div>
-                        </div>
-                        <button class="action-btn play-group-btn" title="Reproduzir Artista">
-                            <i class="fa-solid fa-play"></i>
-                        </button>
-                    """.trimIndent()
-                    
-                    row.addEventListener("click", {
-                        playArtist(artist, isOfflineView)
-                    })
-                    container.appendChild(row)
-                }
-            }
-
-            // Render Albums
-            if (matchingAlbums.isNotEmpty()) {
-                val secHeader = document.createElement("div") as HTMLElement
-                secHeader.className = "search-section-header"
-                secHeader.innerText = "Álbuns"
-                container.appendChild(secHeader)
-
-                matchingAlbums.forEach { (album, artist) ->
-                    val row = document.createElement("div") as HTMLElement
-                    row.className = "search-item-row album-row"
-                    row.innerHTML = """
-                        <div class="row-left">
-                            <div class="item-art album-art">
-                                <i class="fa-solid fa-compact-disc"></i>
-                            </div>
-                            <div class="item-details">
-                                <span class="item-title">$album</span>
-                                <span class="item-subtitle">Álbum • $artist</span>
-                            </div>
-                        </div>
-                        <button class="action-btn play-group-btn" title="Reproduzir Álbum">
-                            <i class="fa-solid fa-play"></i>
-                        </button>
-                    """.trimIndent()
-
-                    row.addEventListener("click", {
-                        playAlbum(album, isOfflineView)
-                    })
-                    container.appendChild(row)
-                }
-            }
-
-            // Render Tracks
-            if (matchingTracks.isNotEmpty()) {
-                val secHeader = document.createElement("div") as HTMLElement
-                secHeader.className = "search-section-header"
-                secHeader.innerText = "Músicas"
-                container.appendChild(secHeader)
-
-                matchingTracks.forEach { track ->
-                    renderTrackRow(container, track)
-                }
-            }
-
-            // Online Search Results
-            if (currentView == View.EXPLORE && window.navigator.onLine && renderTracks) {
-                val secHeader = document.createElement("div") as HTMLElement
-                secHeader.className = "search-section-header"
-                secHeader.innerText = "Resultados Online"
-                container.appendChild(secHeader)
-
-                if (isSearchingOnline) {
-                    val loading = document.createElement("div") as HTMLElement
-                    loading.className = "empty-state"
-                    loading.innerHTML = """
-                        <i class="fa-solid fa-spinner fa-spin"></i>
-                        <p>Buscando na nuvem em tempo real...</p>
-                    """.trimIndent()
-                    container.appendChild(loading)
-                } else if (onlineSearchResults.isEmpty()) {
-                    val empty = document.createElement("div") as HTMLElement
-                    empty.className = "empty-state"
-                    empty.innerHTML = """
-                        <i class="fa-solid fa-globe"></i>
-                        <p>Nenhum resultado online.</p>
-                    """.trimIndent()
-                    container.appendChild(empty)
-                } else {
-                    onlineSearchResults.forEach { track ->
-                        renderTrackRow(container, track)
-                    }
-                }
-            }
-        }
-    }
-
-    private fun renderTrackRow(container: HTMLElement, track: Track) {
-        val row = document.createElement("div") as HTMLElement
-        val isActive = currentTrack?.id == track.id
-        val isPlayingRow = isActive && isPlaying
-        
-        row.className = "track-row" + (if (isActive) " active" else "")
-        
-        val isDownloaded = downloadedTrackIds.contains(track.id)
-        val isDownloading = downloadingTrackIds.contains(track.id)
-
-        // Setup icons based on state
-        val playIcon = if (isPlayingRow) "fa-pause" else "fa-play"
-        val downloadIconClass = when {
-            isDownloading -> "fa-spinner downloading"
-            isDownloaded -> "fa-circle-check downloaded"
-            else -> "fa-arrow-down"
-        }
-
-        row.innerHTML = """
-            <button class="track-play-btn">
-                <i class="fa-solid $playIcon"></i>
-            </button>
-            <div class="track-info">
-                <div class="track-art">${track.title.take(1)}</div>
-                <div class="track-details">
-                    <span class="track-title">${track.title}</span>
-                    <span class="track-artist">${track.artist}</span>
+        player.innerHTML = """
+            <div class="player-track-info">
+                <i class="fa-solid fa-music player-track-icon"></i>
+                <div>
+                    <div class="player-track-title">$trackTitle</div>
+                    <div class="player-track-artist">$trackArtist</div>
                 </div>
             </div>
-            <span class="track-album">${track.album}</span>
-            <span class="track-duration">${track.duration}</span>
-            <div class="track-actions">
-                <button class="action-btn download-btn" title="${if (isDownloaded) "Excluir cache offline" else "Baixar offline"}">
-                    <i class="fa-solid $downloadIconClass"></i>
+            
+            <div class="player-controls">
+                <button class="player-btn" id="player-shuffle" title="Modo Aleatório">
+                    <i class="fa-solid ${if (isShuffle) "fa-shuffle active" else "fa-shuffle"}"></i>
                 </button>
-                <button class="action-btn add-to-playlist-btn" title="Adicionar à Playlist">
-                    <i class="fa-solid fa-plus"></i>
+                <button class="player-btn" id="player-prev" title="Anterior">
+                    <i class="fa-solid fa-step-backward"></i>
                 </button>
-                <div class="playlist-dropdown-menu"></div>
+                <button class="player-btn player-play-btn" id="player-play" title="${if (isPlaying) "Pausar" else "Reproduzir"}">
+                    <i class="fa-solid ${if (isPlaying) "fa-pause" else "fa-play"}"></i>
+                </button>
+                <button class="player-btn" id="player-next" title="Próxima">
+                    <i class="fa-solid fa-step-forward"></i>
+                </button>
+                <button class="player-btn" id="player-repeat" title="Modo Repetição">
+                    <i class="fa-solid ${when (repeatMode) {
+                        RepeatMode.OFF -> "fa-repeat"
+                        RepeatMode.ONE -> "fa-repeat active"
+                        RepeatMode.ALL -> "fa-repeat active"
+                    }}"></i>
+                </button>
+            </div>
+            
+            <div class="player-progress">
+                <span class="player-time" id="player-current-time">0:00</span>
+                <div class="player-progress-bar">
+                    <div class="player-progress-fill" id="player-progress-fill"></div>
+                </div>
+                <span class="player-time" id="player-duration">0:00</span>
+            </div>
+            
+            <div class="player-volume-download">
+                <div class="player-volume">
+                    <button class="player-btn" id="player-mute">
+                        <i class="fa-solid ${if (isMuted || volume == 0.0) "fa-volume-xmark" else "fa-volume-high"}"></i>
+                    </button>
+                    <input type="range" class="player-volume-slider" id="player-volume-slider" min="0" max="100" value="${(volume * 100).toInt()}">
+                </div>
+                <button class="player-btn download-btn" id="player-download" title="${if (isDownloaded) "Remover Download" else "Baixar"}">
+                    <i class="fa-solid ${if (isDownloading) "fa-spinner fa-spin" else if (isDownloaded) "fa-circle-check" else "fa-circle-down"}"></i>
+                </button>
             </div>
         """.trimIndent()
 
-        // Play track on clicking anywhere on the row except action buttons
-        row.addEventListener("click", { event ->
-            val target = event.target as? HTMLElement
-            if (target?.closest(".action-btn") == null && target?.closest(".playlist-dropdown-menu") == null) {
-                if (currentView == View.PLAYLISTS) {
-                    selectedPlaylist?.let { p ->
-                        activePlaylistQueue = getTracks().filter { p.trackIds.contains(it.id) }
-                    }
-                } else {
-                    activePlaylistQueue = null
-                }
-                
-                if (isActive) {
-                    togglePlay()
-                } else {
-                    loadTrack(track, autoPlay = true)
-                }
-            }
+        // Attach event listeners
+        player.querySelector("#player-shuffle")?.addEventListener("click", {
+            isShuffle = !isShuffle
+            render()
         })
-
-        // Playlist dropdown interaction
-        val addBtn = row.querySelector(".add-to-playlist-btn") as HTMLElement
-        val dropdown = row.querySelector(".playlist-dropdown-menu") as HTMLElement
+        player.querySelector("#player-prev")?.addEventListener("click", {
+            prevTrack()
+        })
+        player.querySelector("#player-play")?.addEventListener("click", {
+            togglePlay()
+        })
+        player.querySelector("#player-next")?.addEventListener("click", {
+            nextTrack()
+        })
+        player.querySelector("#player-repeat")?.addEventListener("click", {
+            repeatMode = when (repeatMode) {
+                RepeatMode.OFF -> RepeatMode.ONE
+                RepeatMode.ONE -> RepeatMode.ALL
+                RepeatMode.ALL -> RepeatMode.OFF
+            }
+            render()
+        })
+        player.querySelector("#player-mute")?.addEventListener("click", {
+            toggleMute()
+        })
         
-        addBtn.addEventListener("click", { event ->
-            event.stopPropagation()
-            
-            // Close other open dropdowns
-            document.querySelectorAll(".playlist-dropdown-menu").asList().forEach { el ->
-                if (el != dropdown) {
-                    el.classList.remove("show")
-                }
-            }
-            
-            val playlists = PlaylistManager.getPlaylists()
-            dropdown.innerHTML = ""
-            
-            val header = document.createElement("div") as HTMLElement
-            header.className = "playlist-dropdown-header"
-            header.innerText = "Adicionar à Playlist"
-            dropdown.appendChild(header)
-            
-            val createItem = document.createElement("button") as HTMLElement
-            createItem.className = "playlist-dropdown-item"
-            createItem.innerHTML = "<i class='fa-solid fa-plus-circle'></i> Nova Playlist..."
-            createItem.addEventListener("click", { ev ->
-                ev.stopPropagation()
-                dropdown.classList.remove("show")
-                openCreatePlaylistModal()
-            })
-            dropdown.appendChild(createItem)
-            
-            playlists.forEach { playlist ->
-                val item = document.createElement("button") as HTMLElement
-                item.className = "playlist-dropdown-item"
-                val hasTrack = playlist.trackIds.contains(track.id)
-                val icon = if (hasTrack) "fa-circle-check" else "fa-circle"
-                val iconStyle = if (hasTrack) "style='color: var(--secondary);'" else ""
-                
-                item.innerHTML = "<i class='fa-regular $icon' $iconStyle></i> ${playlist.name}"
-                item.addEventListener("click", { ev ->
-                    ev.stopPropagation()
-                    if (hasTrack) {
-                        PlaylistManager.removeTrackFromPlaylist(playlist.id, track.id)
-                    } else {
-                        PlaylistManager.addTrackToPlaylist(playlist.id, track.id)
-                    }
-                    dropdown.classList.remove("show")
-                    render()
-                })
-                dropdown.appendChild(item)
-            }
-            
-            dropdown.classList.toggle("show")
+        val volumeSlider = player.querySelector("#player-volume-slider") as? HTMLInputElement
+        volumeSlider?.addEventListener("input", {
+            setVolume(volumeSlider.value.toDouble() / 100.0)
         })
 
-        // Dismiss dropdown on outside clicks
-        document.addEventListener("click", {
-            dropdown.classList.remove("show")
+        val progressBar = player.querySelector(".player-progress-bar") as? HTMLElement
+        progressBar?.addEventListener("click", { event ->
+            val rect = progressBar.getBoundingClientRect()
+            val percent = (event.asDynamic().clientX - rect.left) / rect.width
+            seekTo(percent)
         })
 
-        // Download button action
-        val dlBtn = row.querySelector(".download-btn") as HTMLElement
-        dlBtn.addEventListener("click", { event ->
-            event.stopPropagation()
-            if (isDownloaded) {
-                // Delete from offline cache
-                OfflineManager.deleteTrack(track.url) { success ->
-                    if (success) {
-                        downloadedTrackIds.remove(track.id)
-                        LocalStorageManager.removeDownloadedTrack(track.id)
-                        // reload downloaded tracks from storage
-                        downloadedTracks.clear()
-                        downloadedTracks.addAll(LocalStorageManager.getDownloadedTracks())
-                        renderTrackList()
-                    }
-                }
-            } else if (!isDownloading) {
-                // Add to cache
-                downloadingTrackIds.add(track.id)
-                renderTrackList()
-                OfflineManager.downloadTrack(track.url, 
-                    onProgress = {
-                        // Already marked in downloadingTrackIds
-                    },
-                    onComplete = { success ->
-                        downloadingTrackIds.remove(track.id)
+        val downloadBtn = player.querySelector("#player-download") as? HTMLElement
+        downloadBtn?.addEventListener("click", {
+            if (track != null) {
+                if (isDownloaded) {
+                    downloadingTrackIds.remove(track.id)
+                    OfflineManager.deleteTrack(track.url) { success ->
                         if (success) {
-                            downloadedTrackIds.add(track.id)
-                            LocalStorageManager.saveDownloadedTrack(track)
-                            // reload downloaded tracks from storage
-                            downloadedTracks.clear()
-                            downloadedTracks.addAll(LocalStorageManager.getDownloadedTracks())
+                            downloadedTrackIds.remove(track.id)
+                            LocalStorageManager.removeDownloadedTrack(track.id)
+                            render()
                         }
-                        renderTrackList()
+                    }
+                } else {
+                    downloadingTrackIds.add(track.id)
+                    render()
+                    OfflineManager.downloadTrack(track.url, 
+                        onProgress = { render() },
+                        onComplete = { success ->
+                            downloadingTrackIds.remove(track.id)
+                            if (success) {
+                                downloadedTrackIds.add(track.id)
+                                LocalStorageManager.saveDownloadedTrack(track)
+                            }
+                            render()
+                        }
+                    )
+                }
+            }
+        })
+    }
+
+    private fun renderFilterChips(container: HTMLElement, renderSourceFilter: Boolean = true) {
+        val chipsContainer = document.createElement("div") as HTMLElement
+        chipsContainer.className = "filter-chips"
+
+        if (renderSourceFilter) {
+            val sourceLabel = document.createElement("span") as HTMLElement
+            sourceLabel.className = "filter-label"
+            sourceLabel.innerText = "Origem:"
+            chipsContainer.appendChild(sourceLabel)
+
+            val sources = listOf("Todas as Origens", "iTunes", "Deezer", "LofiCC")
+            sources.forEach { source ->
+                val chip = document.createElement("button") as HTMLElement
+                chip.className = "filter-chip ${if (selectedSourceFilter == source) "active" else ""}"
+                chip.innerText = source
+                chip.addEventListener("click", {
+                    selectedSourceFilter = source
+                    performOnlineSearch(searchQuery)
+                })
+                chipsContainer.appendChild(chip)
+            }
+        }
+
+        val typeLabel = document.createElement("span") as HTMLElement
+        typeLabel.className = "filter-label"
+        typeLabel.innerText = "Tipo:"
+        chipsContainer.appendChild(typeLabel)
+
+        val types = listOf("Tudo", "Favoritos", "Recentes")
+        types.forEach { type ->
+            val chip = document.createElement("button") as HTMLElement
+            chip.className = "filter-chip ${if (selectedTypeFilter == type) "active" else ""}"
+            chip.innerText = type
+            chip.addEventListener("click", {
+                selectedTypeFilter = type
+                renderTrackList()
+            })
+            chipsContainer.appendChild(chip)
+        }
+
+        container.appendChild(chipsContainer)
+    }
+
+    private fun renderTrackList() {
+        val container = (mainContainer?.querySelector(".tracks-grid") as? HTMLElement) ?: return
+        container.innerHTML = ""
+
+        val tracks = when (currentView) {
+            View.EXPLORE, View.DOWNLOADS -> getTracks()
+            View.PLAYLISTS -> {
+                val playlist = selectedPlaylist
+                if (playlist != null) getTracks().filter { it.id in playlist.trackIds } else getTracks()
+            }
+            View.VISUALIZER -> getTracks()
+        }
+
+        if (tracks.isEmpty()) {
+            val empty = document.createElement("div") as HTMLElement
+            empty.className = "empty-state"
+            empty.innerHTML = """
+                <i class="fa-solid fa-music"></i>
+                <h3>Nenhuma música encontrada</h3>
+                <p>Tente uma busca diferente ou explore as origens disponíveis.</p>
+            """.trimIndent()
+            container.appendChild(empty)
+        } else {
+            tracks.forEach { track ->
+                val card = createTrackCard(track, selectedPlaylist?.id)
+                container.appendChild(card)
+            }
+        }
+    }
+
+    private fun createTrackCard(track: Track, playlistId: String?): HTMLElement {
+        val card = document.createElement("div") as HTMLElement
+        card.className = "track-card"
+        val isDownloaded = downloadedTrackIds.contains(track.id)
+        val isDownloading = downloadingTrackIds.contains(track.id)
+        
+        card.innerHTML = """
+            <div class="track-card-header">
+                <div class="track-card-art">
+                    <i class="fa-solid fa-music"></i>
+                    <div class="track-card-play-overlay">
+                        <i class="fa-solid fa-circle-play"></i>
+                    </div>
+                </div>
+                <div class="track-card-actions">
+                    <button class="track-card-action-btn download-btn" data-track-id="${track.id}" data-track-url="${track.url}" title="${if (isDownloaded) "Remover Download" else "Baixar"}">
+                        <i class="fa-solid ${if (isDownloading) "fa-spinner fa-spin" else if (isDownloaded) "fa-circle-check" else "fa-circle-down"}"></i>
+                    </button>
+                    ${if (playlistId != null) "<button class=\"track-card-action-btn remove-from-playlist-btn\" data-track-id=\"${track.id}\" title=\"Remover da Playlist\"><i class=\"fa-solid fa-trash\"></i></button>" else ""}
+                </div>
+            </div>
+            <div class="track-card-info">
+                <div class="track-card-title">${track.title}</div>
+                <div class="track-card-artist">${track.artist}</div>
+                <div class="track-card-duration">${track.duration}</div>
+            </div>
+        """.trimIndent()
+
+        // Play track on card click
+        card.querySelector(".track-card-play-overlay")?.addEventListener("click", {
+            currentTrack = track
+            loadTrack(track, autoPlay = true)
+        })
+
+        // Download button
+        card.querySelector(".download-btn")?.addEventListener("click", { event ->
+            event.stopPropagation()
+            val target = (event.target as? Element)
+                ?: (event.currentTarget as? Element)
+            val trackId = target?.getAttribute("data-track-id") ?: return@addEventListener
+            val trackUrl = target.getAttribute("data-track-url") ?: return@addEventListener
+            
+            if (isDownloaded) {
+                downloadingTrackIds.remove(trackId)
+                OfflineManager.deleteTrack(trackUrl) { success ->
+                    if (success) {
+                        downloadedTrackIds.remove(trackId)
+                        LocalStorageManager.removeDownloadedTrack(trackId)
+                        render()
+                    }
+                }
+            } else {
+                downloadingTrackIds.add(trackId)
+                render()
+                OfflineManager.downloadTrack(trackUrl,
+                    onProgress = { render() },
+                    onComplete = { success ->
+                        downloadingTrackIds.remove(trackId)
+                        if (success) {
+                            downloadedTrackIds.add(trackId)
+                            val trackToSave = track.copy()
+                            LocalStorageManager.saveDownloadedTrack(trackToSave)
+                        }
+                        render()
                     }
                 )
             }
         })
 
-        container.appendChild(row)
-    }
-
-    private fun playArtist(artistName: String, offlineOnly: Boolean) {
-        val artistTracks = getTracks().filter { it.artist == artistName && (!offlineOnly || downloadedTrackIds.contains(it.id)) }
-        if (artistTracks.isNotEmpty()) {
-            loadTrack(artistTracks.first(), autoPlay = true)
-        }
-    }
-
-    private fun playAlbum(albumName: String, offlineOnly: Boolean) {
-        val albumTracks = getTracks().filter { it.album == albumName && (!offlineOnly || downloadedTrackIds.contains(it.id)) }
-        if (albumTracks.isNotEmpty()) {
-            loadTrack(albumTracks.first(), autoPlay = true)
-        }
-    }
-
-    private fun renderVisualizer(container: HTMLElement) {
-        val wrap = document.createElement("div") as HTMLElement
-        wrap.className = "visualizer-container"
-
-        val canvas = document.createElement("canvas") as HTMLCanvasElement
-        canvas.className = "visualizer-canvas"
-        wrap.appendChild(canvas)
-
-        // Setup resize handling for canvas
-        window.addEventListener("resize", {
-            if (currentView == View.VISUALIZER) {
-                canvas.width = wrap.clientWidth
-                canvas.height = wrap.clientHeight
+        // Remove from playlist button
+        card.querySelector(".remove-from-playlist-btn")?.addEventListener("click", { event ->
+            event.stopPropagation()
+            val target = (event.target as? Element)
+                ?: (event.currentTarget as? Element)
+            val trackId = target?.getAttribute("data-track-id") ?: return@addEventListener
+            if (playlistId != null) {
+                PlaylistManager.removeTrackFromPlaylist(playlistId, trackId)
+                render()
             }
         })
 
-        // Initial canvas dimensions (must set properties explicitly, not just CSS)
-        // Wait, wait for elements to render to get bounds. Let's do it after append.
-        window.setTimeout({
-            canvas.width = wrap.clientWidth
-            canvas.height = wrap.clientHeight
-            if (analyser != null) {
-                startVisualizerAnimation(canvas)
-            }
-        }, 50)
-
-        // Visualizer Overlay Info
-        val title = currentTrack?.title ?: "No Track Selected"
-        val artist = currentTrack?.artist ?: "Press Play to start"
-        val playingClass = if (isPlaying && currentTrack != null) "playing" else ""
-        val initialLetter = currentTrack?.title?.take(1) ?: "🎵"
-
-        val overlay = document.createElement("div") as HTMLElement
-        overlay.className = "visualizer-overlay"
-        overlay.innerHTML = """
-            <div class="visualizer-art $playingClass">$initialLetter</div>
-            <div class="visualizer-title">$title</div>
-            <div class="visualizer-artist">$artist</div>
-        """.trimIndent()
-
-        wrap.appendChild(overlay)
-        container.appendChild(wrap)
+        return card
     }
 
-    private fun renderPlayerBar() {
-        val bar = playerBar ?: return
-        bar.innerHTML = ""
-
-        val track = currentTrack
-        val trackTitle = track?.title ?: "Not Playing"
-        val trackArtist = track?.artist ?: "Select a track to start"
-        val initialLetter = track?.title?.take(1) ?: "🎵"
-
-        val playIcon = if (isPlaying) "fa-pause" else "fa-play"
-        val muteIcon = if (isMuted || volume == 0.0) "fa-volume-xmark" else "fa-volume-high"
-
-        val playingClass = if (isPlaying) "playing" else ""
-
-        val repeatClass = when (repeatMode) {
-            RepeatMode.ONE -> "active"
-            RepeatMode.ALL -> "active"
-            RepeatMode.OFF -> ""
-        }
-        val repeatIcon = if (repeatMode == RepeatMode.ONE) "fa-repeat-1" else "fa-repeat"
-        
-        val shuffleClass = if (isShuffle) "active" else ""
-
-        // HTML Layout for player bar
-        bar.innerHTML = """
-            <div class="player-track-info">
-                <div class="player-track-art $playingClass">$initialLetter</div>
-                <div class="player-track-details">
-                    <span class="player-track-title">$trackTitle</span>
-                    <span class="player-track-artist">$trackArtist</span>
+    private fun openCreatePlaylistModal() {
+        val modal = document.createElement("div") as HTMLElement
+        modal.className = "modal"
+        modal.innerHTML = """
+            <div class="modal-content">
+                <h2>Nova Playlist</h2>
+                <input type="text" class="modal-input" placeholder="Nome da playlist" id="playlist-name-input" autofocus>
+                <div class="modal-actions">
+                    <button class="modal-btn cancel">Cancelar</button>
+                    <button class="modal-btn create">Criar</button>
                 </div>
-            </div>
-            <div class="player-controls-container">
-                <div class="player-buttons">
-                    <button class="player-btn $shuffleClass" id="player-shuffle" title="Shuffle">
-                        <i class="fa-solid fa-shuffle"></i>
-                    </button>
-                    <button class="player-btn" id="player-prev" title="Previous">
-                        <i class="fa-solid fa-backward-step"></i>
-                    </button>
-                    <button class="player-btn-main" id="player-play-pause" title="Play/Pause">
-                        <i class="fa-solid $playIcon"></i>
-                    </button>
-                    <button class="player-btn" id="player-next" title="Next">
-                        <i class="fa-solid fa-forward-step"></i>
-                    </button>
-                    <button class="player-btn $repeatClass" id="player-repeat" title="Repeat Mode">
-                        <i class="fa-solid $repeatIcon"></i>
-                    </button>
-                </div>
-                <div class="progress-container">
-                    <span class="time-label" id="current-time">0:00</span>
-                    <div class="progress-slider-wrapper">
-                        <input type="range" class="progress-slider" id="progress-slider" min="0" max="100" value="0">
-                    </div>
-                    <span class="time-label" id="duration-time">${track?.duration ?: "0:00"}</span>
-                </div>
-            </div>
-            <div class="player-right-controls">
-                <div class="volume-container">
-                    <button class="action-btn" id="player-mute" title="Mute/Unmute">
-                        <i class="fa-solid $muteIcon"></i>
-                    </button>
-                    <input type="range" class="volume-slider" id="volume-slider" min="0" max="100" value="${(volume * 100).toInt()}">
-                </div>
-                <button class="action-btn" id="player-visualizer-toggle" title="Full Screen Visualizer">
-                    <i class="fa-solid fa-expand"></i>
-                </button>
             </div>
         """.trimIndent()
-
-        // Event Listeners for Player controls
-        bar.querySelector("#player-play-pause")?.addEventListener("click", { togglePlay() })
-        bar.querySelector("#player-next")?.addEventListener("click", { nextTrack() })
-        bar.querySelector("#player-prev")?.addEventListener("click", { prevTrack() })
         
-        bar.querySelector("#player-shuffle")?.addEventListener("click", {
-            isShuffle = !isShuffle
-            render()
+        document.body?.appendChild(modal)
+        
+        val input = modal.querySelector("#playlist-name-input") as? HTMLInputElement
+        
+        modal.querySelector(".modal-btn.cancel")?.addEventListener("click", {
+            modal.remove()
         })
         
-        bar.querySelector("#player-repeat")?.addEventListener("click", {
-            repeatMode = when (repeatMode) {
-                RepeatMode.OFF -> RepeatMode.ALL
-                RepeatMode.ALL -> RepeatMode.ONE
-                RepeatMode.ONE -> RepeatMode.OFF
+        modal.querySelector(".modal-btn.create")?.addEventListener("click", {
+            val name = input?.value?.trim() ?: ""
+            if (name.isNotEmpty()) {
+                val id = "playlist_${kotlin.js.Date.now()}"
+                val newPlaylist = Playlist(id, name, emptyList())
+                PlaylistManager.savePlaylist(newPlaylist)
+                modal.remove()
+                render()
             }
-            render()
         })
-
-        bar.querySelector("#player-mute")?.addEventListener("click", { toggleMute() })
-
-        val volSlider = bar.querySelector("#volume-slider") as HTMLInputElement
-        volSlider.addEventListener("input", {
-            setVolume(volSlider.value.toDouble() / 100.0)
+        
+        input?.addEventListener("keydown", { event ->
+            val keyEvent = event as? KeyboardEvent ?: return@addEventListener
+            if (keyEvent.key == "Enter") {
+                val name = input.value.trim()
+                if (name.isNotEmpty()) {
+                    val id = "playlist_${kotlin.js.Date.now()}"
+                    val newPlaylist = Playlist(id, name, emptyList())
+                    PlaylistManager.savePlaylist(newPlaylist)
+                    modal.remove()
+                    render()
+                }
+            }
         })
+    }
 
-        bar.querySelector("#player-visualizer-toggle")?.addEventListener("click", {
-            switchView(View.VISUALIZER)
+    private fun openRenamePlaylistModal(playlist: Playlist) {
+        val modal = document.createElement("div") as HTMLElement
+        modal.className = "modal"
+        modal.innerHTML = """
+            <div class="modal-content">
+                <h2>Renomear Playlist</h2>
+                <input type="text" class="modal-input" placeholder="Novo nome da playlist" id="playlist-rename-input" value="${playlist.name}" autofocus>
+                <div class="modal-actions">
+                    <button class="modal-btn cancel">Cancelar</button>
+                    <button class="modal-btn rename">Renomear</button>
+                </div>
+            </div>
+        """.trimIndent()
+        
+        document.body?.appendChild(modal)
+        
+        val input = modal.querySelector("#playlist-rename-input") as? HTMLInputElement
+        
+        modal.querySelector(".modal-btn.cancel")?.addEventListener("click", {
+            modal.remove()
         })
-
-        // Progress slider scrubbing
-        val progSlider = bar.querySelector("#progress-slider") as HTMLInputElement
-        progSlider.addEventListener("change", {
-            seekTo(progSlider.value.toDouble() / 100.0)
+        
+        modal.querySelector(".modal-btn.rename")?.addEventListener("click", {
+            val name = input?.value?.trim() ?: ""
+            if (name.isNotEmpty()) {
+                val updated = playlist.copy(name = name)
+                PlaylistManager.savePlaylist(updated)
+                modal.remove()
+                render()
+            }
+        })
+        
+        input?.addEventListener("keydown", { event ->
+            val keyEvent = event as? KeyboardEvent ?: return@addEventListener
+            if (keyEvent.key == "Enter") {
+                val name = input.value.trim()
+                if (name.isNotEmpty()) {
+                    val updated = playlist.copy(name = name)
+                    PlaylistManager.savePlaylist(updated)
+                    modal.remove()
+                    render()
+                }
+            }
         })
     }
 
     private fun updatePlaybackProgress() {
-        if (audio.duration.isNaN() || audio.duration == 0.0) return
+        val progress = if (audio.duration.isNaN() || audio.duration == 0.0) 0.0 else audio.currentTime / audio.duration
+        val progressFill = playerBar?.querySelector("#player-progress-fill") as? HTMLElement
+        progressFill?.style?.width = "${(progress * 100).toInt()}%"
         
-        val percent = (audio.currentTime / audio.duration) * 100
-        val slider = document.getElementById("progress-slider") as? HTMLInputElement
-        if (slider != null) {
-            slider.value = percent.toInt().toString()
-        }
-
-        val currentLabel = document.getElementById("current-time") as? HTMLElement
-        if (currentLabel != null) {
-            currentLabel.innerText = formatTime(audio.currentTime)
-        }
+        updateTimeDisplay()
     }
 
     private fun updateDurationDisplay() {
-        val durationLabel = document.getElementById("duration-time") as? HTMLElement
-        if (durationLabel != null && !audio.duration.isNaN()) {
-            durationLabel.innerText = formatTime(audio.duration)
-        }
+        val duration = if (audio.duration.isNaN()) 0 else audio.duration.toInt()
+        val minutes = duration / 60
+        val seconds = duration % 60
+        val secondsStr = if (seconds < 10) "0$seconds" else "$seconds"
+        val durationEl = playerBar?.querySelector("#player-duration") as? HTMLElement
+        durationEl?.innerText = "$minutes:$secondsStr"
     }
 
-    private fun formatTime(seconds: Double): String {
-        if (seconds.isNaN()) return "0:00"
-        val mins = (seconds / 60).toInt()
-        val secs = (seconds % 60).toInt()
-        return "$mins:${if (secs < 10) "0" else ""}$secs"
-    }
-
-    private fun renderFilterChips(parent: HTMLElement, renderSourceFilter: Boolean = true) {
-        val wrapper = document.createElement("div") as HTMLElement
-        wrapper.className = "filters-wrapper"
-        
-        var html = ""
-        
-        if (renderSourceFilter && searchQuery.isNotEmpty() && window.navigator.onLine) {
-            html += """
-                <div class="filter-row">
-                    <span class="filter-label">Origem:</span>
-                    <button class="filter-chip ${if (selectedSourceFilter == "Todas as Origens") "active" else ""}" data-source="Todas as Origens">Todas</button>
-                    <button class="filter-chip ${if (selectedSourceFilter == "iTunes") "active" else ""}" data-source="iTunes">iTunes</button>
-                    <button class="filter-chip ${if (selectedSourceFilter == "Deezer") "active" else ""}" data-source="Deezer">Deezer</button>
-                    <button class="filter-chip ${if (selectedSourceFilter == "LofiCC") "active" else ""}" data-source="LofiCC">LofiCC</button>
-                </div>
-            """.trimIndent()
-        }
-        
-        html += """
-            <div class="filter-row">
-                <span class="filter-label">Tipo:</span>
-                <button class="filter-chip ${if (selectedTypeFilter == "Tudo") "active" else ""}" data-type="Tudo">Tudo</button>
-                <button class="filter-chip ${if (selectedTypeFilter == "Músicas") "active" else ""}" data-type="Músicas">Músicas</button>
-                <button class="filter-chip ${if (selectedTypeFilter == "Artistas") "active" else ""}" data-type="Artistas">Artistas</button>
-                <button class="filter-chip ${if (selectedTypeFilter == "Álbuns") "active" else ""}" data-type="Álbuns">Álbuns</button>
-            </div>
-        """.trimIndent()
-        
-        wrapper.innerHTML = html
-        parent.appendChild(wrapper)
-        
-        // Add Listeners
-        wrapper.querySelectorAll("[data-source]").asList().forEach { el ->
-            el.addEventListener("click", {
-                val src = el.getAttribute("data-source") ?: "Todas as Origens"
-                selectedSourceFilter = src
-                performOnlineSearch(searchQuery)
-                render()
-            })
-        }
-        
-        wrapper.querySelectorAll("[data-type]").asList().forEach { el ->
-            el.addEventListener("click", {
-                val typ = el.getAttribute("data-type") ?: "Tudo"
-                selectedTypeFilter = typ
-                render()
-            })
-        }
-    }
-
-    private fun openCreatePlaylistModal() {
-        val overlay = document.createElement("div") as HTMLElement
-        overlay.className = "modal-overlay"
-        overlay.innerHTML = """
-            <div class="modal-container">
-                <div class="modal-title">Nova Playlist</div>
-                <input type="text" class="modal-input" placeholder="Digite o nome da playlist..." autofocus>
-                <div class="modal-buttons">
-                    <button class="modal-btn modal-btn-cancel">Cancelar</button>
-                    <button class="modal-btn modal-btn-confirm">Criar</button>
-                </div>
-            </div>
-        """.trimIndent()
-        
-        document.body?.appendChild(overlay)
-        // Trigger transition
-        window.setTimeout({ overlay.classList.add("show") }, 10)
-        
-        val input = overlay.querySelector(".modal-input") as HTMLInputElement
-        val cancelBtn = overlay.querySelector(".modal-btn-cancel") as HTMLElement
-        val confirmBtn = overlay.querySelector(".modal-btn-confirm") as HTMLElement
-        
-        fun close() {
-            overlay.classList.remove("show")
-            window.setTimeout({ overlay.remove() }, 300)
-        }
-        
-        cancelBtn.addEventListener("click", { close() })
-        overlay.addEventListener("click", { event ->
-            if (event.target == overlay) close()
-        })
-        
-        fun confirm() {
-            val name = input.value.trim()
-            if (name.isNotEmpty()) {
-                val id = "playlist_" + kotlin.js.Date.now().toLong()
-                val newPlaylist = Playlist(id, name, emptyList())
-                PlaylistManager.savePlaylist(newPlaylist)
-                close()
-                render()
-            }
-        }
-        
-        confirmBtn.addEventListener("click", { confirm() })
-        input.addEventListener("keydown", { event ->
-            val e = event as KeyboardEvent
-            if (e.key == "Enter") {
-                confirm()
-            } else if (e.key == "Escape") {
-                close()
-            }
-        })
-    }
-
-    private fun playPlaylist(playlist: Playlist) {
-        val playlistTracks = getTracks().filter { playlist.trackIds.contains(it.id) }
-        if (playlistTracks.isNotEmpty()) {
-            activePlaylistQueue = playlistTracks
-            loadTrack(playlistTracks.first(), autoPlay = true)
-        }
+    private fun updateTimeDisplay() {
+        val current = audio.currentTime.toInt()
+        val minutes = current / 60
+        val seconds = current % 60
+        val secondsStr = if (seconds < 10) "0$seconds" else "$seconds"
+        val currentEl = playerBar?.querySelector("#player-current-time") as? HTMLElement
+        currentEl?.innerText = "$minutes:$secondsStr"
     }
 }
 
 fun main() {
-    window.addEventListener("DOMContentLoaded", {
-        val app = MusicPlayerApp()
-        app.start()
-    })
+    val app = MusicPlayerApp()
+    app.start()
 }

@@ -1,0 +1,31 @@
+# Git
+.git
+.gitignore
+
+# Gradle — exclui tudo do build, EXCETO os arquivos estáticos produzidos
+.gradle/
+build/
+!build/dist/
+!build/dist/js/
+!build/dist/js/productionExecutable/
+
+# Android — não entra na imagem web
+android/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# CI
+.github/
+
+# Extras
+*.md
+LICENSE

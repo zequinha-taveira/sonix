@@ -432,6 +432,7 @@ fun PlayerBar(
                             contentDescription = "Repeat",
                             tint = tint
                         )
+                    }
                 }
             }
         }
@@ -495,4 +496,3 @@ fun PlayerBarLandscapePreview() {
         isLandscape = true
     )
 }
-

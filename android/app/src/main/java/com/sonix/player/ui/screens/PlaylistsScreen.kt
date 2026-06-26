@@ -368,6 +368,7 @@ fun PlaylistsScreen(
                     }
                 }
             }
+        }
     }
 }
 
@@ -493,4 +494,3 @@ fun PlaylistsScreenPreview() {
         onPlayPlaylist = {}
     )
 }
-

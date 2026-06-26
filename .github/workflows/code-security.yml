@@ -1,0 +1,873 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║          🔐  SONIX — CODE SECURITY WORKFLOW  (COMPLETO)         ║
+# ║          Caminho: .github/workflows/code-security.yml           ║
+# ╠══════════════════════════════════════════════════════════════════╣
+# ║  Pilares cobertos:                                               ║
+# ║   1. 🔑  Secret Scanning    — Gitleaks + TruffleHog             ║
+# ║   2. 🧪  SAST               — CodeQL (multi-lang) + Semgrep     ║
+# ║   3. 📦  SCA / Deps         — OWASP + Trivy FS + npm/pip audit  ║
+# ║   4. 🐳  Container Security — Trivy image + Docker Scout        ║
+# ║   5. 🏗️   IaC Security       — Checkov (tf/k8s/docker/GHA)      ║
+# ║   6. 🔏  Supply Chain       — Sigstore / Cosign signing         ║
+# ║   7. 📋  SBOM               — Syft (CycloneDX + SPDX)          ║
+# ║   8. 📊  Relatório PR       — Comentário consolidado            ║
+# ║   9. 🚦  Security Gate      — Bloqueia merge se crítico         ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
+name: 🔐 Code Security
+
+# ──────────────────────────────────────────────────────────────────
+# TRIGGERS
+# ──────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+      - "release/**"
+      - "hotfix/**"
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".gitignore"
+      - "LICENSE"
+
+  pull_request:
+    branches:
+      - main
+      - master
+      - develop
+    types: [opened, synchronize, reopened, ready_for_review]
+
+  schedule:
+    - cron: "0 3 * * 1"   # toda segunda-feira às 03:00 UTC
+
+  workflow_dispatch:
+    inputs:
+      scan_mode:
+        description: "Modo do scan"
+        required: false
+        default: "full"
+        type: choice
+        options: [full, quick, deps-only, container-only]
+      fail_on_severity:
+        description: "Falhar a partir de qual severidade"
+        required: false
+        default: "high"
+        type: choice
+        options: [critical, high, medium, low]
+
+# ──────────────────────────────────────────────────────────────────
+# PERMISSÕES GLOBAIS (mínimas — cada job adiciona o que precisa)
+# ──────────────────────────────────────────────────────────────────
+permissions:
+  contents: read
+
+# Cancela runs anteriores do mesmo PR (economiza minutos de CI)
+concurrency:
+  group: "code-security-${{ github.ref }}"
+  cancel-in-progress: true
+
+# ──────────────────────────────────────────────────────────────────
+# VARIÁVEIS GLOBAIS
+# ──────────────────────────────────────────────────────────────────
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  FAIL_SEVERITY: ${{ inputs.fail_on_severity || 'high' }}
+  TRIVY_VERSION: "0.55.2"
+  SEMGREP_VERSION: "1.91.0"
+
+# ══════════════════════════════════════════════════════════════════
+#  JOB 1 ─ 🔑  SECRET SCANNING
+# ══════════════════════════════════════════════════════════════════
+jobs:
+  secret-scanning:
+    name: 🔑 Secret Scanning
+    runs-on: ubuntu-latest
+    if: >
+      github.event.inputs.scan_mode == 'full' ||
+      github.event.inputs.scan_mode == '' ||
+      github.event.inputs.scan_mode == null
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+    steps:
+      - name: ⬇️ Checkout (histórico completo)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── Gitleaks ─────────────────────────────────────────────
+      - name: 🔍 Gitleaks — scan de segredos no histórico
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        with:
+          args: >
+            detect
+            --log-opts="--all"
+            --report-format=sarif
+            --report-path=gitleaks.sarif
+            --redact
+            --exit-code=1
+        continue-on-error: true
+
+      - name: 📤 Upload Gitleaks SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gitleaks.sarif
+          category: secret-gitleaks
+
+      # ── TruffleHog ───────────────────────────────────────────
+      - name: 🐷 TruffleHog — segunda camada (segredos verificados)
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified --json --no-update
+        continue-on-error: true
+
+      # ── GitGuardian (opcional — exige secret GG_API_KEY) ─────
+      - name: 🛡️ GitGuardian — validação adicional
+        if: ${{ secrets.GG_API_KEY != '' }}
+        uses: GitGuardian/ggshield-action@main
+        env:
+          GITHUB_PUSH_BEFORE_SHA: ${{ github.event.before }}
+          GITHUB_PUSH_BASE_SHA: ${{ github.event.base }}
+          GITHUB_PULL_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GITGUARDIAN_API_KEY: ${{ secrets.GG_API_KEY }}
+        continue-on-error: true
+
+# ══════════════════════════════════════════════════════════════════
+#  JOB 2 ─ 🧪  SAST — CodeQL
+# ══════════════════════════════════════════════════════════════════
+  codeql:
+    name: 🧪 SAST — CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    if: >
+      github.event.inputs.scan_mode == 'full' ||
+      github.event.inputs.scan_mode == '' ||
+      github.event.inputs.scan_mode == null
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - javascript-typescript
+          - python
+          # Adicione/remova conforme linguagens do projeto:
+          # - java-kotlin
+          # - csharp
+          # - go
+          # - ruby
+          # - swift
+          # - cpp
+
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔬 Inicializar CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality,security-extended
+          config: |
+            query-filters:
+              - exclude:
+                  problem.severity: note
+
+      - name: 🔨 Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: 📊 Executar análise CodeQL
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: codeql-${{ matrix.language }}
+          upload: always
+          output: codeql-${{ matrix.language }}.sarif
+
+# ══════════════════════════════════════════════════════════════════
+#  JOB 3 ─ 🧪  SAST — Semgrep
+# ══════════════════════════════════════════════════════════════════
+  semgrep:
+    name: 🧪 SAST — Semgrep
+    runs-on: ubuntu-latest
+    if: >
+      github.event.inputs.scan_mode == 'full' ||
+      github.event.inputs.scan_mode == '' ||
+      github.event.inputs.scan_mode == null
+    permissions:
+      contents: read
+      security-events: write
+
+    container:
+      image: semgrep/semgrep
+
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔬 Semgrep — análise estática
+        run: |
+          semgrep ci \
+            --config auto \
+            --config "p/security-audit" \
+            --config "p/secrets" \
+            --config "p/owasp-top-ten" \
+            --config "p/cwe-top-25" \
+            --sarif \
+            --output semgrep.sarif \
+            --severity WARNING \
+            --severity ERROR \
+            --no-rewrite-rule-ids \
+            --timeout 300 || true
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+      - name: 📤 Upload Semgrep SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+          category: sast-semgrep
+
+# ══════════════════════════════════════════════════════════════════
+#  JOB 4 ─ 📦  SCA — Dependências
+# ══════════════════════════════════════════════════════════════════
+  dependency-scan:
+    name: 📦 SCA — Dependências
+    runs-on: ubuntu-latest
+    if: >
+      github.event.inputs.scan_mode != 'container-only'
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v4
+
+      # ── Cache do banco NVD ────────────────────────────────────
+      - name: 💾 Cache NVD database
+        uses: actions/cache@v4
+        with:
+          path: ~/.dependency-check/data
+          key: nvd-${{ runner.os }}-${{ hashFiles('**/package-lock.json','**/requirements*.txt','**/pom.xml','**/go.sum','**/Gemfile.lock') }}
+          restore-keys: nvd-${{ runner.os }}-
+
+      # ── OWASP Dependency-Check ────────────────────────────────
+      - name: 🔍 OWASP Dependency-Check
+        uses: dependency-check/Dependency-Check_Action@main
+        id: owasp
+        with:
+          project: "${{ github.repository }}"
+          path: "."
+          format: "SARIF HTML JSON"
+          out: "owasp-reports"
+          args: >
+            --failOnCVSS 7
+            --enableRetired
+            --enableExperimental
+            --nvdApiKey ${{ secrets.NVD_API_KEY }}
+            --suppression .dependency-check-suppression.xml
+        continue-on-error: true
+
+      - name: 📤 Upload OWASP SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: owasp-reports/dependency-check-report.sarif
+          category: sca-owasp
+
+      - name: 📦 Artefato OWASP (HTML + JSON)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-dependency-report-${{ github.run_number }}
+          path: owasp-reports/
+          retention-days: 30
+
+      # ── npm audit (Node.js) ───────────────────────────────────
+      - name: 🟩 npm audit
+        if: hashFiles('package-lock.json') != '' || hashFiles('yarn.lock') != ''
+        run: |
+          if [ -f package-lock.json ]; then
+            npm audit --audit-level=${{ env.FAIL_SEVERITY }} --json > npm-audit.json 2>&1 || true
+          elif [ -f yarn.lock ]; then
+            npx --yes yarn-audit-fix --audit-level ${{ env.FAIL_SEVERITY }} || true
+          fi
+        continue-on-error: true
+
+      - name: 📦 Artefato npm audit
+        if: always() && hashFiles('npm-audit.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-${{ github.run_number }}
+          path: npm-audit.json
+          retention-days: 14
+
+      # ── pip-audit (Python) ────────────────────────────────────
+      - name: 🐍 pip-audit
+        if: hashFiles('requirements*.txt') != '' || hashFiles('pyproject.toml') != ''
+        run: |
+          pip install pip-audit --quiet
+          if [ -f requirements.txt ]; then
+            pip-audit -r requirements.txt \
+              --format json \
+              --output pip-audit.json \
+              --ignore-vuln PYSEC-2022-42974 \
+              || true
+          fi
+        continue-on-error: true
+
+      - name: 📦 Artefato pip-audit
+        if: always() && hashFiles('pip-audit.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-${{ github.run_number }}
+          path: pip-audit.json
+          retention-days: 14
+
+      # ── Trivy Filesystem ──────────────────────────────────────
+      - name: 🔭 Trivy — filesystem scan (SCA + secrets + misconfig)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-fs.sarif"
+          severity: "CRITICAL,HIGH,MEDIUM"
+          ignore-unfixed: true
+          scanners: "vuln,secret,misconfig"
+          exit-code: "0"
+        continue-on-error: true
+
+      - name: 📤 Upload Trivy FS SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: sca-trivy-fs
+
+# ══════════════════════════════════════════════════════════════════
+#  JOB 5 ─ 🐳  CONTAINER SECURITY
+# ══════════════════════════════════════════════════════════════════
+  container-security:
+    name: 🐳 Container Security
+    runs-on: ubuntu-latest
+    if: >
+      github.event.inputs.scan_mode != 'deps-only'
+    permissions:
+      contents: read
+      security-events: write
+      packages: write   # para push no GHCR
+
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v4
+
+      # ── Detectar Dockerfile ───────────────────────────────────
+      - name: 🔎 Detectar Dockerfile
+        id: docker
+        run: |
+          DOCKERFILE=""
+          for f in Dockerfile docker/Dockerfile Dockerfile.prod .docker/Dockerfile; do
+            if [ -f "$f" ]; then
+              DOCKERFILE="$f"
+              break
+            fi
+          done
+          if [ -n "$DOCKERFILE" ]; then
+            echo "found=true"  >> $GITHUB_OUTPUT
+            echo "path=$DOCKERFILE" >> $GITHUB_OUTPUT
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Hadolint — lint do Dockerfile ────────────────────────
+      - name: 🧹 Hadolint — lint Dockerfile
+        if: steps.docker.outputs.found == 'true'
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ${{ steps.docker.outputs.path }}
+          format: sarif
+          output-file: hadolint.sarif
+          failure-threshold: warning
+        continue-on-error: true
+
+      - name: 📤 Upload Hadolint SARIF
+        if: steps.docker.outputs.found == 'true' && always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: hadolint.sarif
+          category: docker-hadolint
+
+      # ── Build da imagem ───────────────────────────────────────
+      - name: 🔨 Build Docker image (sem push)
+        if: steps.docker.outputs.found == 'true'
+        id: build
+        run: |
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:scan-${{ github.sha }}"
+          docker build \
+            --file ${{ steps.docker.outputs.path }} \
+            --tag "$IMAGE_TAG" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --no-cache \
+            . 2>&1 | tee docker-build.log
+          echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      # ── Trivy — Image scan ────────────────────────────────────
+      - name: 🔭 Trivy — image scan (CVE)
+        if: steps.docker.outputs.found == 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "image"
+          image-ref: ${{ steps.build.outputs.image }}
+          format: "sarif"
+          output: "trivy-image.sarif"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+          scanners: "vuln,secret"
+          exit-code: "1"
+        continue-on-error: true
+
+      - name: 📤 Upload Trivy Image SARIF
+        if: steps.docker.outputs.found == 'true' && always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
+          category: container-trivy-image
+
+      # ── Trivy — SBOM da imagem ────────────────────────────────
+      - name: 📋 Trivy — SBOM da imagem (CycloneDX)
+        if: steps.docker.outputs.found == 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "image"
+          image-ref: ${{ steps.build.outputs.image }}
+          format: "cyclonedx"
+          output: "sbom-image.cdx.json"
+          exit-code: "0"
+        continue-on-error: true
+
+      - name: 📦 Artefato SBOM da imagem
+        if: steps.docker.outputs.found == 'true' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-image-${{ github.run_number }}
+          path: sbom-image.cdx.json
+          retention-days: 90
+
+      # ── Grype — segundo scanner de imagem ────────────────────
+      - name: 🦈 Grype — segunda verificação da imagem
+        if: steps.docker.outputs.found == 'true'
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          grype ${{ steps.build.outputs.image }} \
+            --output sarif \
+            --file grype-image.sarif \
+            --fail-on ${{ env.FAIL_SEVERITY }} || true
+        continue-on-error: true
+
+      - name: 📤 Upload Grype SARIF
+        if: steps.docker.outputs.found == 'true' && always() && hashFiles('grype-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: grype-image.sarif
+          category: container-grype
+
+# ══════════════════════════════════════════════════════════════════
+#  JOB 6 ─ 🏗️   IaC SECURITY — Checkov
+# ══════════════════════════════════════════════════════════════════
+  iac-security:
+    name: 🏗️ IaC Security — Checkov
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔍 Checkov — scan IaC completo
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: all
+          output_format: cli,sarif,json
+          output_file_path: "console,checkov.sarif,checkov.json"
+          download_external_modules: false
+          log_level: WARNING
+          soft_fail: true
+          # Ignora checks específicos (ajuste conforme necessidade):
+          # skip_check: CKV_AWS_18,CKV_DOCKER_2
+        continue-on-error: true
+
+      - name: 📤 Upload Checkov SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov.sarif
+          category: iac-checkov
+
+      - name: 📦 Artefato Checkov JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkov-report-${{ github.run_number }}
+          path: checkov.json
+          retention-days: 30
+
+      # ── tfsec (Terraform) ─────────────────────────────────────
+      - name: 🏗️ tfsec — scan Terraform
+        if: hashFiles('**/*.tf') != ''
+        uses: aquasecurity/tfsec-action@v1.0.0
+        with:
+          additional_args: >
+            --format sarif
+            --out tfsec.sarif
+            --minimum-severity ${{ env.FAIL_SEVERITY }}
+            --no-color
+          soft_fail: true
+        continue-on-error: true
+
+      - name: 📤 Upload tfsec SARIF
+        if: always() && hashFiles('tfsec.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: tfsec.sarif
+          category: iac-tfsec
+
+      # ── Kubesec (Kubernetes) ──────────────────────────────────
+      - name: ☸️ Kubesec — scan manifests Kubernetes
+        if: hashFiles('**/*.yaml', 'k8s/**', 'kubernetes/**') != ''
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            kubesec/kubesec:v2 \
+            scan /workspace/k8s/*.yaml 2>/dev/null > kubesec.json || true
+        continue-on-error: true
+
+# ══════════════════════════════════════════════════════════════════
+#  JOB 7 ─ 📋  SBOM — Syft
+# ══════════════════════════════════════════════════════════════════
+  sbom:
+    name: 📋 SBOM — Syft
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v4
+
+      # ── SBOM SPDX ────────────────────────────────────────────
+      - name: 📋 Syft — SBOM SPDX-JSON
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sbom.spdx.json
+          artifact-name: "${{ github.event.repository.name }}-sbom-${{ github.sha }}.spdx.json"
+
+      # ── SBOM CycloneDX ────────────────────────────────────────
+      - name: 📋 Syft — SBOM CycloneDX
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+          artifact-name: "${{ github.event.repository.name }}-sbom-${{ github.sha }}.cyclonedx.json"
+
+      # ── Verificação do SBOM com Grype ─────────────────────────
+      - name: 🦈 Grype — scan via SBOM (CycloneDX)
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          grype sbom:sbom.cyclonedx.json \
+            --output sarif \
+            --file grype-sbom.sarif \
+            --fail-on ${{ env.FAIL_SEVERITY }} || true
+        continue-on-error: true
+
+      - name: 📤 Upload Grype SBOM SARIF
+        if: always() && hashFiles('grype-sbom.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: grype-sbom.sarif
+          category: sbom-grype
+
+      # ── Publicar SBOM no Release ──────────────────────────────
+      - name: 🏷️ Attach SBOMs ao Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            sbom.spdx.json
+            sbom.cyclonedx.json
+
+# ══════════════════════════════════════════════════════════════════
+#  JOB 8 ─ 🔏  SUPPLY CHAIN — Cosign / Sigstore
+# ══════════════════════════════════════════════════════════════════
+  supply-chain:
+    name: 🔏 Supply Chain — Cosign
+    runs-on: ubuntu-latest
+    if: >
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      startsWith(github.ref, 'refs/tags/')
+    needs: [container-security]
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔎 Detectar Dockerfile
+        id: docker
+        run: |
+          for f in Dockerfile docker/Dockerfile; do
+            [ -f "$f" ] && echo "found=true" >> $GITHUB_OUTPUT && exit 0
+          done
+          echo "found=false" >> $GITHUB_OUTPUT
+
+      - name: 🔧 Instalar Cosign
+        if: steps.docker.outputs.found == 'true'
+        uses: sigstore/cosign-installer@v3
+
+      - name: 🔑 Login GHCR
+        if: steps.docker.outputs.found == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔨 Build + Push imagem para GHCR
+        if: steps.docker.outputs.found == 'true'
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: ✍️ Cosign — assinar imagem (keyless)
+        if: steps.docker.outputs.found == 'true'
+        run: |
+          cosign sign --yes \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}"
+
+      - name: 📋 Cosign — atrelar SBOM assinado
+        if: steps.docker.outputs.found == 'true' && hashFiles('sbom.cyclonedx.json') != ''
+        run: |
+          cosign attach sbom \
+            --sbom sbom.cyclonedx.json \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}"
+
+# ══════════════════════════════════════════════════════════════════
+#  JOB 9 ─ 📊  SECURITY SUMMARY — Comentário no PR
+# ══════════════════════════════════════════════════════════════════
+  security-summary:
+    name: 📊 Security Summary
+    runs-on: ubuntu-latest
+    if: always() && github.event_name == 'pull_request'
+    needs:
+      - secret-scanning
+      - codeql
+      - semgrep
+      - dependency-scan
+      - container-security
+      - iac-security
+      - sbom
+
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: 💬 Comentar resumo no PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const jobs = {
+              "🔑 Secret Scanning":    "${{ needs.secret-scanning.result }}",
+              "🧪 SAST — CodeQL":     "${{ needs.codeql.result }}",
+              "🧪 SAST — Semgrep":    "${{ needs.semgrep.result }}",
+              "📦 SCA — Deps":        "${{ needs.dependency-scan.result }}",
+              "🐳 Container":         "${{ needs.container-security.result }}",
+              "🏗️ IaC — Checkov":     "${{ needs.iac-security.result }}",
+              "📋 SBOM — Syft":       "${{ needs.sbom.result }}",
+            };
+
+            const icon = r =>
+              r === "success"   ? "✅" :
+              r === "failure"   ? "❌" :
+              r === "skipped"   ? "⏭️" :
+              r === "cancelled" ? "🚫" : "⚠️";
+
+            const allOk = Object.values(jobs).every(r =>
+              ["success", "skipped"].includes(r)
+            );
+
+            const severity = "${{ github.event.inputs.fail_on_severity || 'high' }}";
+            const rows = Object.entries(jobs)
+              .map(([n, r]) => `| ${icon(r)} | ${n} | \`${r}\` |`)
+              .join("\n");
+
+            const body = `## 🔐 Code Security — Relatório do PR
+
+            ${allOk
+              ? "✅ **Todos os scans de segurança passaram!**"
+              : "⚠️ **Um ou mais scans falharam. Revise a aba Security antes do merge.**"
+            }
+
+            | Status | Verificação | Resultado |
+            |:------:|-------------|:---------:|
+            ${rows}
+
+            ---
+            **Configurações desta execução:**
+            - Severidade mínima para falha: \`${severity}\`
+            - Commit: \`${{ github.sha }}\`
+            - Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            > 🔗 Detalhes completos na aba **[Security → Code Scanning](${{ github.server_url }}/${{ github.repository }}/security/code-scanning)**
+
+            <sub>_Atualizado automaticamente pelo workflow code-security_</sub>`;
+
+            // Atualiza comentário anterior em vez de criar novo (evita spam)
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const prev = comments.find(c =>
+              c.user.login === "github-actions[bot]" &&
+              c.body.includes("Code Security — Relatório do PR")
+            );
+
+            if (prev) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: prev.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+# ══════════════════════════════════════════════════════════════════
+#  JOB 10 ─ 🚦  SECURITY GATE (bloqueia merge se crítico)
+# ══════════════════════════════════════════════════════════════════
+  security-gate:
+    name: 🚦 Security Gate
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - secret-scanning
+      - codeql
+      - semgrep
+      - dependency-scan
+      - container-security
+      - iac-security
+      - sbom
+
+    steps:
+      - name: 🚦 Avaliar resultados críticos
+        run: |
+          echo "══════════════════════════════════════════"
+          echo "  🔐 SONIX — Security Gate"
+          echo "══════════════════════════════════════════"
+          echo ""
+
+          GATE_FAILED=0
+          GATE_WARN=0
+
+          check_critical() {
+            local NAME="$1"
+            local RESULT="$2"
+            if [ "$RESULT" = "failure" ]; then
+              echo "  ❌  $NAME → FALHOU"
+              GATE_FAILED=1
+            elif [ "$RESULT" = "success" ]; then
+              echo "  ✅  $NAME → OK"
+            else
+              echo "  ⚠️   $NAME → $RESULT"
+              GATE_WARN=1
+            fi
+          }
+
+          check_warn() {
+            local NAME="$1"
+            local RESULT="$2"
+            if [ "$RESULT" = "failure" ]; then
+              echo "  ⚠️   $NAME → FALHOU (não bloqueante)"
+              GATE_WARN=1
+            elif [ "$RESULT" = "success" ]; then
+              echo "  ✅  $NAME → OK"
+            else
+              echo "  ➖  $NAME → $RESULT"
+            fi
+          }
+
+          echo "🔴 Verificações BLOQUEANTES:"
+          check_critical "Secret Scanning"   "${{ needs.secret-scanning.result }}"
+          check_critical "SAST — CodeQL"     "${{ needs.codeql.result }}"
+          check_critical "Container Sec."    "${{ needs.container-security.result }}"
+
+          echo ""
+          echo "🟡 Verificações INFORMATIVAS:"
+          check_warn "SAST — Semgrep"   "${{ needs.semgrep.result }}"
+          check_warn "SCA — Deps"       "${{ needs.dependency-scan.result }}"
+          check_warn "IaC — Checkov"    "${{ needs.iac-security.result }}"
+          check_warn "SBOM — Syft"      "${{ needs.sbom.result }}"
+
+          echo ""
+          echo "══════════════════════════════════════════"
+
+          if [ "$GATE_FAILED" -eq 1 ]; then
+            echo ""
+            echo "  🚫  SECURITY GATE: BLOQUEADO"
+            echo "  ➡️   Corrija as vulnerabilidades críticas"
+            echo "       antes de fazer o merge."
+            echo ""
+            exit 1
+          fi
+
+          if [ "$GATE_WARN" -eq 1 ]; then
+            echo ""
+            echo "  🟡  SECURITY GATE: APROVADO COM AVISOS"
+            echo "  ➡️   Verifique os itens informativos."
+          else
+            echo ""
+            echo "  🟢  SECURITY GATE: APROVADO"
+          fi

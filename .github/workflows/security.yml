@@ -111,6 +111,7 @@ jobs:
 
   # ══════════════════════════════════════════════════════════════
   # 4. GITLEAKS — detecção de secrets/tokens no histórico git
+  #    Usa CLI diretamente — sem Action, sem Node.js, sem cache externo
   # ══════════════════════════════════════════════════════════════
   gitleaks:
     name: 🔑 Gitleaks (Secrets)
@@ -122,11 +123,30 @@ jobs:
         with:
           fetch-depth: 0     # necessário para varrer todo o histórico
 
-      - name: Scan de secrets com Gitleaks
-        uses: gitleaks/gitleaks-action@v2.3.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}   # opcional (plano free funciona sem)
+      - name: Instalar Gitleaks CLI
+        run: |
+          GITLEAKS_VERSION="8.27.2"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Scan de secrets (SARIF)
+        run: |
+          gitleaks detect \
+            --source . \
+            --redact \
+            --no-git=false \
+            --report-format sarif \
+            --report-path gitleaks.sarif \
+            --exit-code 1
+        continue-on-error: true   # não bloqueia o build; alertas vão para a aba Security
+
+      - name: Upload SARIF ao GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: gitleaks.sarif
+          category: gitleaks
 
   # ══════════════════════════════════════════════════════════════
   # 5. TRIVY — vulnerabilidades na imagem Docker
